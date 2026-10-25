@@ -40,8 +40,15 @@ it("does nothing when another replica holds the lock", async () => {
   db.installedPlugin.findMany.mockClear();
   db.installedPlugin.update.mockClear();
   await runPluginUpgrades();
-  expect(db.installedPlugin.findMany).not.toHaveBeenCalled();
+  expect(db.installedPlugin.findMany).toHaveBeenCalledTimes(1); // pre-check only, not the locked re-read
   expect(db.installedPlugin.update).not.toHaveBeenCalled();
+});
+
+it("opens no transaction when no installed plugin needs an upgrade", async () => {
+  db.installedPlugin.findMany.mockResolvedValue([{ id: "same", version: "1.0.0", status: "ENABLED" }]);
+  db.$transaction.mockClear();
+  await runPluginUpgrades();
+  expect(db.$transaction).not.toHaveBeenCalled();
 });
 
 it("returns without a transaction or query when the registry is empty (M1)", async () => {
