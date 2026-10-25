@@ -1,7 +1,17 @@
 "use client";
 import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Phone, Users, FileText, Mail, MapPin, Pencil, Trash2 } from "lucide-react";
+import {
+  Phone,
+  Users,
+  FileText,
+  Mail,
+  MapPin,
+  MessageSquare,
+  Repeat,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +41,7 @@ const TYPE_ICONS = {
   note: FileText,
   email: Mail,
   visit: MapPin,
+  linkedin: MessageSquare,
 } as const;
 
 const TYPE_LABELS = {
@@ -39,6 +50,7 @@ const TYPE_LABELS = {
   note: "Note",
   email: "Email",
   visit: "Visit",
+  linkedin: "LinkedIn",
 } as const;
 
 const STATUS_VARIANTS = {
@@ -58,8 +70,18 @@ interface Props {
 export function ActivityEntry({ activity, onDeleted, onUpdated, entityType, entityId }: Props) {
   const [editOpen, setEditOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const Icon = TYPE_ICONS[activity.type];
+  const metadata = (activity.metadata as Record<string, unknown> | null) ?? {};
+  const direction = metadata.direction as "outbound" | "inbound" | undefined;
+  const directionLabel =
+    direction &&
+    (activity.type === "call"
+      ? direction === "outbound" ? "Outgoing" : "Incoming"
+      : direction === "outbound" ? "Sent" : "Received");
+  const subject = metadata.subject as string | undefined;
+  const counterpart = metadata.to as string | undefined;
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -89,7 +111,29 @@ export function ActivityEntry({ activity, onDeleted, onUpdated, entityType, enti
               <Badge variant={STATUS_VARIANTS[activity.status]} className="text-xs">
                 {activity.status}
               </Badge>
+              {directionLabel && (
+                <Badge variant="secondary" className="text-xs">
+                  {directionLabel}
+                </Badge>
+              )}
+              {metadata.isFollowUp === true && (
+                <Badge variant="outline" className="text-xs gap-1">
+                  <Repeat className="h-3 w-3" />
+                  Follow-up
+                </Badge>
+              )}
             </div>
+            {(subject || counterpart) && (
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                {counterpart && (
+                  <>
+                    {direction === "inbound" ? "From" : "To"}: {counterpart}
+                  </>
+                )}
+                {counterpart && subject && " · "}
+                {subject && <>Subject: {subject}</>}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <Tooltip>
@@ -133,9 +177,24 @@ export function ActivityEntry({ activity, onDeleted, onUpdated, entityType, enti
           </div>
         </div>
         {activity.description && (
-          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-            {activity.description}
-          </p>
+          <>
+            <p
+              className={`text-sm text-muted-foreground mt-1 whitespace-pre-wrap break-words ${
+                expanded ? "" : "line-clamp-2"
+              }`}
+            >
+              {activity.description}
+            </p>
+            {activity.description.length > 160 && (
+              <button
+                type="button"
+                className="text-xs text-primary mt-1 hover:underline"
+                onClick={() => setExpanded((v) => !v)}
+              >
+                {expanded ? "Show less" : "Show full content"}
+              </button>
+            )}
+          </>
         )}
         {activity.outcome && (
           <p className="text-xs text-muted-foreground mt-1">

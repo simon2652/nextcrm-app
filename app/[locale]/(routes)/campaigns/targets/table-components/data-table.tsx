@@ -30,6 +30,8 @@ import { DataTableToolbar } from "./data-table-toolbar";
 import { PanelTopClose, PanelTopOpen, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BulkEnrichTargetsModal } from "../components/BulkEnrichTargetsModal";
+import { ConvertTargetsToDealsButton } from "../components/ConvertTargetsToDealsButton";
+import { BulkOutreachDialog } from "../components/outreach/BulkOutreachDialog";
 import ExportTargetsButton from "@/components/campaigns/ExportTargetsButton";
 
 interface DataTableProps<TData, TValue> {
@@ -127,6 +129,12 @@ export function TargetsDataTable<TData, TValue>({
                   <Sparkles className="h-4 w-4 mr-1 text-orange-500" />
                   Enrich {table.getSelectedRowModel().rows.length} targets
                 </Button>
+                <BulkOutreachDialog
+                  targetIds={table.getSelectedRowModel().rows.map((row) => (row.original as { id: string }).id)}
+                />
+                <ConvertTargetsToDealsButton
+                  targetIds={table.getSelectedRowModel().rows.map((row) => (row.original as { id: string }).id)}
+                />
               </div>
               <BulkEnrichTargetsModal
                 targetIds={table.getSelectedRowModel().rows.map((row) => (row.original as { id: string }).id)}

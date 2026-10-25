@@ -96,3 +96,22 @@ describe("getApiKey — tier 4: null", () => {
     expect(result).toBeNull();
   });
 });
+
+describe("getApiKey — env aliases", () => {
+  afterEach(() => {
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.GOOGLE_API_KEY;
+  });
+
+  it("accepts GOOGLE_API_KEY for Gemini", async () => {
+    process.env.GOOGLE_API_KEY = "google-key";
+    expect(await getApiKey("GEMINI")).toBe("google-key");
+    expect(mockFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("prefers GEMINI_API_KEY over the alias", async () => {
+    process.env.GEMINI_API_KEY = "gemini-key";
+    process.env.GOOGLE_API_KEY = "google-key";
+    expect(await getApiKey("GEMINI")).toBe("gemini-key");
+  });
+});

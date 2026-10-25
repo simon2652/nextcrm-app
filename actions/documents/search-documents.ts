@@ -59,7 +59,7 @@ export async function searchDocuments(
   // Semantic search via raw pgvector. Apply post-filter for authz.
   let semResults: { id: string; similarity: number }[] = [];
   try {
-    const embedding = await generateEmbedding(query.trim());
+    const embedding = await generateEmbedding(query.trim(), "RETRIEVAL_QUERY");
     const vec = toVectorLiteral(embedding);
 
     const rawResults = await prismadb.$queryRaw<

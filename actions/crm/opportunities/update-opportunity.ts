@@ -101,6 +101,12 @@ export const updateOpportunity = async (data: {
         type: type || undefined,
       },
     });
+    if (contact) {
+      await prismadb.contactsToOpportunities.createMany({
+        data: [{ contact_id: contact, opportunity_id: opportunity.id }],
+        skipDuplicates: true,
+      });
+    }
     await handleStageTransition({
       opportunityId: opportunity.id,
       fromStage: before?.sales_stage ?? null,

@@ -1,40 +1,33 @@
-import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { minioClient, minioPresignClient, MINIO_BUCKET } from "@/lib/minio";
+import { getUtApi } from "@/lib/uploadthing-server";
 
-function invoiceKey(invoiceId: string) {
-  return `invoices/${invoiceId}.pdf`;
+/**
+ * Invoice PDFs and attachments are uploaded with a private ACL: they are only
+ * reachable through short-lived signed URLs. Private files must be enabled for
+ * the UploadThing app (dashboard > Settings > Files access).
+ */
+async function uploadPrivate(name: string, body: Buffer, mime: string): Promise<string> {
+  const file = new File([new Uint8Array(body)], name, { type: mime });
+  const result = await getUtApi().uploadFiles(file, { acl: "private" });
+  if (result.error) throw new Error(`Invoice upload failed: ${result.error.message}`);
+  return result.data.key;
 }
 
 export async function uploadInvoicePdf(invoiceId: string, pdf: Buffer): Promise<string> {
-  const key = invoiceKey(invoiceId);
-  await minioClient.send(
-    new PutObjectCommand({
-      Bucket: MINIO_BUCKET,
-      Key: key,
-      Body: pdf,
-      ContentType: "application/pdf",
-    }),
-  );
-  return key;
-}
-
-export async function getInvoicePdfStream(key: string) {
-  const res = await minioClient.send(
-    new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: key }),
-  );
-  return res.Body;
+  return uploadPrivate(`invoice-${invoiceId}.pdf`, pdf, "application/pdf");
 }
 
 export async function getInvoicePdfPresignedUrl(
   key: string,
   expirySeconds = 300,
 ): Promise<string> {
-  return getSignedUrl(
-    minioPresignClient,
-    new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: key }),
-    { expiresIn: expirySeconds },
-  );
+  const { ufsUrl } = await getUtApi().generateSignedURL(key, { expiresIn: `${expirySeconds}s` });
+  return ufsUrl;
+}
+
+export async function getInvoicePdfBuffer(key: string): Promise<Buffer> {
+  const res = await fetch(await getInvoicePdfPresignedUrl(key, 60));
+  if (!res.ok) throw new Error(`Failed to fetch invoice PDF: ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 export async function uploadInvoiceAttachment(
@@ -43,14 +36,5 @@ export async function uploadInvoiceAttachment(
   buf: Buffer,
   mime: string,
 ): Promise<string> {
-  const key = `invoices/${invoiceId}/attachments/${attachmentId}`;
-  await minioClient.send(
-    new PutObjectCommand({
-      Bucket: MINIO_BUCKET,
-      Key: key,
-      Body: buf,
-      ContentType: mime,
-    }),
-  );
-  return key;
+  return uploadPrivate(`invoice-${invoiceId}-attachment-${attachmentId}`, buf, mime);
 }

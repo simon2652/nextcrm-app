@@ -1,21 +1,15 @@
 import { inngest } from "@/inngest/client";
 import { prismadb } from "@/lib/prisma";
-import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import { minioClient, MINIO_BUCKET, MINIO_PUBLIC_URL } from "@/lib/minio";
+import { getUtApi } from "@/lib/uploadthing-server";
 import sharp from "sharp";
 
 const THUMB_WIDTH = 200;
 const THUMB_HEIGHT = 200;
 
-async function fetchFileBuffer(key: string): Promise<Buffer> {
-  const response = await minioClient.send(
-    new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: key })
-  );
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
+async function fetchFileBuffer(url: string): Promise<Buffer> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch file: ${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
 }
 
 export const generateDocumentThumbnail = inngest.createFunction(
@@ -30,7 +24,7 @@ export const generateDocumentThumbnail = inngest.createFunction(
 
     const document = await prismadb.documents.findUnique({
       where: { id: documentId },
-      select: { id: true, key: true, document_file_mimeType: true },
+      select: { id: true, key: true, document_file_url: true, document_file_mimeType: true },
     });
     if (!document?.key) return { skipped: "no key" };
 
@@ -40,24 +34,17 @@ export const generateDocumentThumbnail = inngest.createFunction(
       return { skipped: "non-image file" };
     }
 
-    const buffer = await fetchFileBuffer(document.key);
+    const buffer = await fetchFileBuffer(document.document_file_url);
     const thumbnail = await sharp(buffer)
       .resize(THUMB_WIDTH, THUMB_HEIGHT, { fit: "cover" })
       .png()
       .toBuffer();
 
-    const thumbnailKey = `thumbnails/${documentId}.png`;
-
-    await minioClient.send(
-      new PutObjectCommand({
-        Bucket: MINIO_BUCKET,
-        Key: thumbnailKey,
-        Body: thumbnail,
-        ContentType: "image/png",
-      })
+    const upload = await getUtApi().uploadFiles(
+      new File([new Uint8Array(thumbnail)], `thumbnail-${documentId}.png`, { type: "image/png" })
     );
-
-    const thumbnailUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${thumbnailKey}`;
+    if (upload.error) throw new Error(`Thumbnail upload failed: ${upload.error.message}`);
+    const thumbnailUrl = upload.data.ufsUrl;
 
     await prismadb.documents.update({
       where: { id: documentId },

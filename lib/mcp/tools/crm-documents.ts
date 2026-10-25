@@ -1,9 +1,6 @@
 import { z } from "zod";
 import { prismadb } from "@/lib/prisma";
-import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { minioPresignClient, MINIO_BUCKET, MINIO_PUBLIC_URL } from "@/lib/minio";
-import { randomUUID } from "crypto";
+import { getUtApi } from "@/lib/uploadthing-server";
 import {
   paginationSchema,
   paginationArgs,
@@ -102,10 +99,12 @@ export const crmDocumentTools = [
   },
   {
     name: "crm_create_document",
-    description: "Create a document record and get a presigned upload URL",
+    description:
+      "Create a document from a publicly reachable source URL. The file is fetched and stored server-side.",
     schema: z.object({
       document_name: z.string().min(1),
       contentType: z.string().min(1),
+      sourceUrl: z.string().url(),
       description: z.string().optional(),
       visibility: z.string().optional(),
     }),
@@ -113,23 +112,26 @@ export const crmDocumentTools = [
       args: {
         document_name: string;
         contentType: string;
+        sourceUrl: string;
         description?: string;
         visibility?: string;
       },
       userId: string
     ) {
-      const ext = args.document_name.includes(".")
-        ? args.document_name.split(".").pop()?.trim() || "bin"
-        : "bin";
-      const key = `documents/${randomUUID()}.${ext}`;
-      const fileUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${key}`;
+      const upload = await getUtApi().uploadFilesFromUrl({
+        url: args.sourceUrl,
+        name: args.document_name,
+      });
+      if (upload.error) validationError(`Upload failed: ${upload.error.message}`);
+      const stored = upload.data!;
 
       const doc = await prismadb.documents.create({
         data: {
           document_name: args.document_name,
           document_file_mimeType: args.contentType,
-          document_file_url: fileUrl,
-          key,
+          document_file_url: stored.ufsUrl,
+          key: stored.key,
+          size: stored.size,
           description: args.description,
           visibility: args.visibility,
           created_by_user: userId,
@@ -138,51 +140,19 @@ export const crmDocumentTools = [
         },
       });
 
-      const command = new PutObjectCommand({
-        Bucket: MINIO_BUCKET,
-        Key: key,
-        ContentType: args.contentType,
-      });
-      const presignedUrl = await getSignedUrl(minioPresignClient, command, { expiresIn: 600 });
-
-      return itemResponse({ ...doc, presignedUrl, expiresIn: 600 });
-    },
-  },
-  {
-    name: "crm_get_upload_url",
-    description: "Get a presigned upload URL for an existing document",
-    schema: z.object({ id: z.string().uuid() }),
-    async handler(args: { id: string }, userId: string) {
-      const doc = await prismadb.documents.findFirst({
-        where: { id: args.id, created_by_user: userId },
-      });
-      if (!doc) notFound("Document");
-      if (!doc.key) validationError("Document has no storage key");
-      const command = new PutObjectCommand({
-        Bucket: MINIO_BUCKET,
-        Key: doc.key!,
-        ContentType: doc.document_file_mimeType,
-      });
-      const presignedUrl = await getSignedUrl(minioPresignClient, command, { expiresIn: 600 });
-      return itemResponse({ id: doc.id, url: presignedUrl, expiresIn: 600 });
+      return itemResponse(doc);
     },
   },
   {
     name: "crm_get_download_url",
-    description: "Get a presigned download URL for a document",
+    description: "Get the download URL of a document",
     schema: z.object({ id: z.string().uuid() }),
     async handler(args: { id: string }, userId: string) {
       const doc = await prismadb.documents.findFirst({
         where: { id: args.id, created_by_user: userId },
       });
       if (!doc) notFound("Document");
-      if (!doc.key) validationError("Document has no storage key");
-      const command = new GetObjectCommand({
-        Bucket: MINIO_BUCKET,
-        Key: doc.key!,
-      });
-      const presignedUrl = await getSignedUrl(minioPresignClient, command, { expiresIn: 3600 });
-      return itemResponse({ id: doc.id, url: presignedUrl, expiresIn: 3600 });
+      return itemResponse({ id: doc.id, url: doc.document_file_url });
     },
   },
   {

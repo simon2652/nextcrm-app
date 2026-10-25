@@ -1,13 +1,11 @@
-import { getActivitiesByEntity } from "@/actions/crm/activities/get-activities-by-entity";
-import { ActivitiesView } from "@/components/crm/activities/ActivitiesView";
+import { InteractionsSection } from "@/components/crm/interactions/InteractionsSection";
 
 interface Props {
   contactId: string;
 }
 
+// Unified feed: logged activities (calls, LinkedIn, meetings, notes) plus
+// mailbox emails linked to the contact's contacts.
 export async function ActivitiesSection({ contactId }: Props) {
-  const initialData = await getActivitiesByEntity("contact", contactId);
-  return (
-    <ActivitiesView entityType="contact" entityId={contactId} initialData={initialData} />
-  );
+  return <InteractionsSection entityType="contact" entityId={contactId} />;
 }

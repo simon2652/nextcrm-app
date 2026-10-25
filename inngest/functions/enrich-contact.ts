@@ -3,6 +3,7 @@ import { prismadb } from "@/lib/prisma";
 import { AgentEnrichmentStrategy } from "@/lib/enrichment/strategies/agent-enrichment-strategy";
 import { isFieldEmpty } from "@/lib/enrichment/utils/field-utils";
 import { getApiKey } from "@/lib/api-keys";
+import { hasAnyLlmKey } from "@/lib/llm/ai-router";
 import type { EnrichmentField } from "@/lib/enrichment/types";
 import type { StoredEnrichmentResult } from "@/lib/enrichment/types/stored-result";
 
@@ -45,9 +46,9 @@ export const enrichContact = inngest.createFunction(
     };
 
     const firecrawlApiKey = await getApiKey("FIRECRAWL", triggeredBy);
-    const openaiApiKey = await getApiKey("OPENAI", triggeredBy);
+    const hasLlmKey = await hasAnyLlmKey(triggeredBy);
 
-    if (!firecrawlApiKey || !openaiApiKey) {
+    if (!firecrawlApiKey || !hasLlmKey) {
       await prismadb.crm_Contact_Enrichment.update({
         where: { id: enrichmentId },
         data: { status: "FAILED", error: "NO_API_KEY: configure keys in admin or profile settings" },
@@ -106,7 +107,10 @@ export const enrichContact = inngest.createFunction(
     }
 
     // Run enrichment
-    const strategy = new AgentEnrichmentStrategy(openaiApiKey!, firecrawlApiKey!);
+    const strategy = new AgentEnrichmentStrategy(
+      { userId: triggeredBy, procedure: "enrichment.contact", correlationId: enrichmentId },
+      firecrawlApiKey
+    );
     const result = await strategy.enrichRow(
       { email: contact.email },
       fields,

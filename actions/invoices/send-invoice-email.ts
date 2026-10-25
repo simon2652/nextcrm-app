@@ -5,7 +5,7 @@ import { getUser } from "@/actions/get-user";
 import { mapLegacyRole } from "@/lib/authz";
 import { canReadInvoice, type InvoiceStatus } from "@/lib/invoices/permissions";
 import resendHelper from "@/lib/resend";
-import { getInvoicePdfStream } from "@/lib/invoices/storage";
+import { getInvoicePdfBuffer } from "@/lib/invoices/storage";
 import { InvoiceEmail } from "@/emails/InvoiceEmail";
 import { render } from "@react-email/render";
 
@@ -45,17 +45,7 @@ export async function sendInvoiceEmail(input: SendInvoiceEmailInput) {
   }
 
   // Fetch PDF from storage
-  const pdfBody = await getInvoicePdfStream(invoice.pdfStorageKey);
-  if (!pdfBody) {
-    throw new Error("Failed to retrieve invoice PDF from storage");
-  }
-
-  // Convert stream to buffer
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of pdfBody as AsyncIterable<Uint8Array>) {
-    chunks.push(chunk);
-  }
-  const pdfBuffer = Buffer.concat(chunks);
+  const pdfBuffer = await getInvoicePdfBuffer(invoice.pdfStorageKey);
 
   const resend = await resendHelper();
   const fromEmail = process.env.EMAIL_FROM ?? `invoices@${process.env.NEXT_PUBLIC_APP_DOMAIN ?? "nextcrm.app"}`;

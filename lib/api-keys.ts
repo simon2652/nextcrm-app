@@ -5,12 +5,28 @@ import type { ApiKeyProvider } from "@prisma/client";
 
 export type { ApiKeyProvider };
 
-const PROVIDER_ENV_MAP: Record<ApiKeyProvider, string> = {
+export const PROVIDER_ENV_MAP: Record<ApiKeyProvider, string> = {
   OPENAI: "OPENAI_API_KEY",
   FIRECRAWL: "FIRECRAWL_API_KEY",
   ANTHROPIC: "ANTHROPIC_API_KEY",
   GROQ: "GROQ_API_KEY",
+  GEMINI: "GEMINI_API_KEY",
+  OPENROUTER: "OPENROUTER_API_KEY",
 };
+
+// Alternative env names accepted after the primary one.
+const PROVIDER_ENV_ALIASES: Partial<Record<ApiKeyProvider, string[]>> = {
+  GEMINI: ["GOOGLE_API_KEY"],
+};
+
+/** The provider key from the environment (primary name, then aliases), if any. */
+export function envApiKey(provider: ApiKeyProvider): string | undefined {
+  for (const name of [PROVIDER_ENV_MAP[provider], ...(PROVIDER_ENV_ALIASES[provider] ?? [])]) {
+    const value = envSecret(name);
+    if (value) return value;
+  }
+  return undefined;
+}
 
 /**
  * Resolve an API key using the 3-tier priority chain:
@@ -24,7 +40,7 @@ export async function getApiKey(
   userId?: string
 ): Promise<string | null> {
   // Tier 1: ENV
-  const envKey = envSecret(PROVIDER_ENV_MAP[provider]);
+  const envKey = envApiKey(provider);
   if (envKey) return envKey;
 
   // Tier 2: system-wide DB key

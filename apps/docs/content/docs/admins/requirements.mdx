@@ -11,10 +11,10 @@ NextCRM is one Next.js application plus three backing services. The Docker Compo
 |---|---|---|
 | NextCRM app | Next.js standalone server on port 3000 | `app` (built from `Dockerfile`) |
 | PostgreSQL 17 with pgvector | All application data, plus vector embeddings for semantic search | `postgres` (`pgvector/pgvector:pg17`) |
-| S3-compatible object storage | Uploaded documents, avatars, invoice PDFs | `minio` |
+| UploadThing | Uploaded documents, avatars, invoice PDFs | external service (account required) |
 | Inngest | Background jobs and scheduled tasks | `inngest` (dev server) |
 
-The app refuses to start without storage settings: `lib/minio.ts` throws if `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` or `MINIO_BUCKET` is missing.
+Uploads fail without `UPLOADTHING_TOKEN`. Create an app on [uploadthing.com](https://uploadthing.com/dashboard) and copy its token.
 
 ## Host
 

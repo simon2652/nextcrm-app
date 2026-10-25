@@ -1,5 +1,6 @@
 "use server";
 import { prismadb } from "@/lib/prisma";
+import { junctionTableHelpers } from "@/lib/junction-helpers";
 import { revalidatePath } from "next/cache";
 import { inngest } from "@/inngest/client";
 import { writeAuditLog } from "@/lib/audit-log";
@@ -70,6 +71,7 @@ export async function convertTargetToDeal(
         name: `${target.company || target.last_name} — inbound`,
         account: converted.accountId,
         contact: converted.contactId,
+        contacts: junctionTableHelpers.connectContactsToOpportunity([converted.contactId]),
         campaign: lastSend?.campaign_id ?? undefined,
         sales_stage: entryStage?.id ?? undefined,
         stage_entered_at: new Date(),

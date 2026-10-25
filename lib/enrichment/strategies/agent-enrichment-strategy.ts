@@ -1,4 +1,5 @@
 import { AgentOrchestrator } from '../agent-architecture';
+import type { AIGenerationContext } from '@/lib/llm/ai-router';
 import type { CSVRow, EnrichmentField, RowEnrichmentResult, EnrichmentResult } from '../types';
 import { shouldSkipEmail, loadSkipList, getSkipReason } from '../utils/skip-list';
 
@@ -17,10 +18,10 @@ export class AgentEnrichmentStrategy {
   private orchestrator: AgentOrchestrator;
   
   constructor(
-    openaiApiKey: string,
+    aiContext: AIGenerationContext,
     firecrawlApiKey: string,
   ) {
-    this.orchestrator = new AgentOrchestrator(firecrawlApiKey, openaiApiKey);
+    this.orchestrator = new AgentOrchestrator(firecrawlApiKey, aiContext);
   }
   
   async enrichRow(

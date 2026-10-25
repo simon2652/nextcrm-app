@@ -1,13 +1,15 @@
-import OpenAI from 'openai';
 import { z } from 'zod';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import type { EnrichmentField, EnrichmentResult } from '../types';
+import { aiRouter, type AIGenerationContext, type RouterChatParams } from '@/lib/llm/ai-router';
 
+// Despite the historical name, every call goes through the AI router
+// (provider/model fallback); OpenAI is just the first provider in the chain.
 export class OpenAIService {
-  private client: OpenAI;
+  constructor(private context: AIGenerationContext) {}
 
-  constructor(apiKey: string) {
-    this.client = new OpenAI({ apiKey });
+  private async chat(params: RouterChatParams) {
+    return (await aiRouter.chat(params, this.context)).completion;
   }
 
   createEnrichmentSchema(fields: EnrichmentField[]) {
@@ -138,8 +140,8 @@ export class OpenAIService {
         trimmedContent = content.substring(0, MAX_CONTENT_CHARS) + '\n\n[Content truncated due to length...]';
       }
 
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-5',
+      const response = await this.chat({
+        tier: 'thinking',
         messages: [
           {
             role: 'system',
@@ -372,8 +374,8 @@ DOMAIN PARKING/SALE PAGES:
         trimmedContent = content.substring(0, MAX_CONTENT_CHARS) + '\n\n[Content truncated due to length...]';
       }
       
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-5',
+      const response = await this.chat({
+        tier: 'thinking',
         messages: [
           {
             role: 'system',
@@ -763,8 +765,8 @@ REMEMBER: Extract exact_text from the "=== ACTUAL CONTENT BELOW ===" section, NO
         .map(([key, type]) => `- ${key}: ${type}`)
         .join('\n');
       
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-5-mini',
+      const response = await this.chat({
+        tier: 'normal',
         messages: [
           {
             role: 'system',
@@ -833,8 +835,8 @@ ${schemaDescription}
     existingQueries: string[] = []
   ): Promise<string[]> {
     try {
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-5',
+      const response = await this.chat({
+        tier: 'thinking',
         messages: [
           {
             role: 'system',
@@ -900,8 +902,8 @@ Return ONLY the search query, nothing else.`
         content: `Question: ${question}\n\nContext: ${JSON.stringify(context || {})}\n\nGenerate the best search query:`
       });
 
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-5-mini',
+      const response = await this.chat({
+        tier: 'normal',
         messages,
         temperature: 0.3,
         max_tokens: 100,
@@ -972,8 +974,8 @@ Question: ${question}
 - Be specific with your answer, citing actual data values`
       });
 
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-5-mini',
+      const response = await this.chat({
+        tier: 'normal',
         messages,
         temperature: 0.1, // Lower temperature for more consistent behavior
         max_tokens: 500,
@@ -1006,8 +1008,8 @@ Question: ${question}
     question: string
   ): Promise<{ url: string; title?: string }> {
     try {
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-5-mini',
+      const response = await this.chat({
+        tier: 'normal',
         messages: [
           {
             role: 'system',
@@ -1065,8 +1067,8 @@ Be concise but informative. If the content doesn't contain the answer, say so. W
         content: `Question: ${question}\n\nContext: ${JSON.stringify(context || {})}\n\nContent from ${sourceUrl || 'source'}:\n${content.slice(0, 8000)}\n\nAnswer:`
       });
 
-      const response = await this.client.chat.completions.create({
-        model: 'gpt-5',
+      const response = await this.chat({
+        tier: 'thinking',
         messages,
         temperature: 0.7,
         max_tokens: 500,

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { createDocument } from "@/actions/documents/create-document";
 import { checkDuplicate } from "@/actions/documents/check-duplicate";
+import { useUploadThing } from "@/lib/uploadthing";
 import { Plus } from "lucide-react";
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
@@ -54,6 +55,7 @@ export function BulkUploadModal({ accountId }: BulkUploadModalProps) {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const router = useRouter();
+  const { startUpload } = useUploadThing("documentUploader");
 
   const updateFile = (index: number, updates: Partial<QueuedFile>) => {
     setQueue((prev) => prev.map((f, i) => (i === index ? { ...f, ...updates } : f)));
@@ -80,35 +82,16 @@ export function BulkUploadModal({ accountId }: BulkUploadModalProps) {
     updateFile(index, { status: "uploading", progress: 10 });
 
     try {
-      const folder = item.file.type.startsWith("image/") ? "images" : "documents";
-      const res = await fetch("/api/upload/presigned-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: item.file.name,
-          contentType: item.file.type,
-          folder,
-        }),
-      });
-
-      if (!res.ok) throw new Error("Failed to get presigned URL");
-      const { presignedUrl, fileUrl, key } = await res.json();
-
-      updateFile(index, { progress: 30 });
-
-      const uploadRes = await fetch(presignedUrl, {
-        method: "PUT",
-        body: item.file,
-        headers: { "Content-Type": item.file.type },
-      });
-      if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
+      const uploaded = await startUpload([item.file]);
+      const data = uploaded?.[0]?.serverData;
+      if (!data) throw new Error("Upload failed");
 
       updateFile(index, { progress: 70 });
 
       await createDocument({
         name: item.file.name,
-        url: fileUrl,
-        key,
+        url: data.url,
+        key: data.key,
         size: item.file.size,
         mimeType: item.file.type,
         contentHash: item.hash,

@@ -196,7 +196,7 @@ Global search across all CRM entities from a single search bar — grouped resul
 
 - [PostgreSQL 17+](https://www.postgresql.org/) – Powerful open-source relational database with **pgvector** extension for AI embeddings
 - [Resend](https://resend.com/) – A powerful email framework for streamlined email development together with [react.email](https://react.email)
-- [MinIO](https://min.io/) or any S3-compatible storage – for document file storage
+- [UploadThing](https://uploadthing.com/) – for document, avatar and invoice file storage
 - [Inngest](https://www.inngest.com/) – Background job queue for async embedding and AI workflows
 
 ### AI & MCP
@@ -331,7 +331,7 @@ Read the docs at [docs.nextcrm.app](https://docs.nextcrm.app): user guide, admin
    **.env.local**
 
    > > - BETTER_AUTH_SECRET - for auth
-   > > - MinIO / S3 (`MINIO_*`) - for storing files
+   > > - UploadThing (`UPLOADTHING_TOKEN`) - for storing files
    > > - openAI - for embeddings and project management assistant *(embeddings need `OPENAI_API_KEY` in the environment; enrichment can use an admin-panel key instead)*
    > > - Firecrawl - for contact/target enrichment *(optional — can be set via admin panel instead)*
    > > - Resend (`RESEND_API_KEY`, `EMAIL_FROM`) and optional SMTP (`EMAIL_HOST`, …) for emails
@@ -363,7 +363,7 @@ Read the docs at [docs.nextcrm.app](https://docs.nextcrm.app): user guide, admin
 
 ## Docker Installation (Recommended for Self-Hosting)
 
-The fastest way to run NextCRM is with Docker Compose. The provided `docker-compose.yml` bundles everything you need: the app, PostgreSQL (with pgvector), MinIO for file storage, and Inngest for background jobs. No manual setup of databases, buckets, or migrations — it all happens automatically on first start.
+The fastest way to run NextCRM is with Docker Compose. The provided `docker-compose.yml` bundles everything you need: the app, PostgreSQL (with pgvector) and Inngest for background jobs. No manual setup of databases, buckets, or migrations — it all happens automatically on first start.
 
 ### Quick Start
 
@@ -393,10 +393,9 @@ Open [http://localhost:3000](http://localhost:3000) — the app is ready, the sc
 |---|---|---|
 | `app` | NextCRM (Next.js standalone build) | `localhost:3000` |
 | `postgres` | PostgreSQL 17 with pgvector | internal only |
-| `minio` | S3-compatible object storage | `127.0.0.1:9000` |
 | `inngest` | Background job runner (self-hosted, signed requests) | internal only |
 
-The app is published on port `3000`. MinIO's S3 port is published on `127.0.0.1:9000` because browsers upload and download files directly from MinIO; on a server, give MinIO its own domain and set `MINIO_PUBLIC_URL` to it. Postgres and Inngest stay on the internal Docker network. Uncomment the relevant `ports:` blocks in `docker-compose.yml` if you need direct access (e.g. for psql or the MinIO console).
+The app is published on port `3000`. Files are stored on [UploadThing](https://uploadthing.com/) (set `UPLOADTHING_TOKEN`), so there is no storage service to host. Postgres and Inngest stay on the internal Docker network. Uncomment the relevant `ports:` blocks in `docker-compose.yml` if you need direct access (e.g. for psql).
 
 ### Configuring environment variables
 
@@ -417,13 +416,13 @@ docker compose up -d
 ```
 
 > [!WARNING]
-> The bundled Postgres and MinIO containers ship with a placeholder password (`changeme`) so the stack works on first run. Postgres is not exposed to the host and MinIO only on `127.0.0.1`, so this is safe for local experimentation. **For any deployment beyond your laptop**, set strong values for `POSTGRES_PASSWORD` and `MINIO_ROOT_PASSWORD` in your `.env` file before starting the stack.
+> The bundled Postgres container ships with a placeholder password (`changeme`) so the stack works on first run. Postgres is not exposed to the host, so this is safe for local experimentation. **For any deployment beyond your laptop**, set a strong `POSTGRES_PASSWORD` in your `.env` file before starting the stack.
 
-On a server, also set the two public URLs:
+On a server, also set the public URL and your UploadThing token:
 
 ```bash
 APP_URL=https://crm.example.com          # what people open; used for auth and links
-MINIO_PUBLIC_URL=https://files.example.com  # what browsers use to reach MinIO
+UPLOADTHING_TOKEN=...                    # from uploadthing.com/dashboard > API Keys
 ```
 
 **Secrets.** `BETTER_AUTH_SECRET`, `EMAIL_ENCRYPTION_KEY`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` are generated on first start and stored in the `app_data` volume, so they survive restarts and upgrades. You can set them in `.env` instead; a value in the environment always wins. Never change them once set: a new `BETTER_AUTH_SECRET` logs everyone out, a new `EMAIL_ENCRYPTION_KEY` makes stored mailbox passwords and API keys unreadable.
@@ -444,10 +443,9 @@ FIRECRAWL_API_KEY=fc-...              # enables contact enrichment
 
 ### Persistent data
 
-Data persists across restarts in four named volumes:
+Data persists across restarts in three named volumes:
 
 - `postgres_data` — your database
-- `minio_data` — uploaded files
 - `app_data` — generated secrets (`/app/data/secrets`); back it up with the database
 - `inngest_data` — background job state (queued runs, schedules)
 
@@ -469,7 +467,7 @@ The entrypoint runs `prisma migrate deploy` on every start, so new schema change
 
 This setup works with self-hosting platforms:
 
-- **Coolify** — point it at this repo, choose "Docker Compose" build pack with `/docker-compose-coolify.yml`, set your env vars in Coolify's UI (required ones are listed at the top of that file). Assign your domain to the `app` service (port 3000) and a second domain to `minio` (port 9000), then set `APP_URL` and `MINIO_PUBLIC_URL` to them.
+- **Coolify** — point it at this repo, choose "Docker Compose" build pack with `/docker-compose-coolify.yml`, set your env vars in Coolify's UI (required ones are listed at the top of that file). Assign your domain to the `app` service (port 3000), then set `APP_URL` and `UPLOADTHING_TOKEN`.
 - **Portainer / Dockge** — paste `docker-compose.yml` into a stack, add env vars in the UI
 
 In all cases, env vars set through the platform UI override the defaults in `docker-compose.yml` the same way a `.env` file does locally.

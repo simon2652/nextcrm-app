@@ -4,6 +4,7 @@ import {
   buildEmbeddingText,
   computeContentHash,
   generateEmbedding,
+  isEmbeddingConfigured,
   toVectorLiteral,
 } from "@/inngest/lib/embedding-utils";
 
@@ -28,6 +29,8 @@ export const embedAccount = inngest.createFunction(
       select: { content_hash: true },
     });
     if (existing?.content_hash === newHash) return { skipped: "hash unchanged" };
+
+    if (!(await isEmbeddingConfigured())) return { skipped: "no Gemini API key" };
 
     const embedding = await generateEmbedding(text);
     const vector = toVectorLiteral(embedding);

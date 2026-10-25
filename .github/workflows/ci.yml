@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 # Inert dummy env shared by every job. Module-level code (OpenAI client in
-# /api/inngest, better-auth, minio, …) reads these at import, so typecheck,
+# /api/inngest, better-auth, uploadthing, …) reads these at import, so typecheck,
 # tests and next build all need them present. Nothing here is a real
 # credential. DATABASE_URL points at the per-job postgres service where one
 # exists; in `fast` nothing connects (all unit tests mock prisma).
@@ -38,12 +38,7 @@ env:
   INNGEST_EVENT_KEY: ci-dummy-event-key
   INNGEST_SIGNING_KEY: ci-dummy-signing-key
   INNGEST_BASE_URL: http://localhost:8288
-  MINIO_ENDPOINT: http://localhost:9000
-  MINIO_PORT: "9000"
-  MINIO_BUCKET: ci
-  MINIO_USE_SSL: "false"
-  MINIO_ACCESS_KEY: ci
-  MINIO_SECRET_KEY: ci
+  UPLOADTHING_TOKEN: ci
   OPENAI_API_KEY: sk-ci-dummy-not-a-real-key
   ANTHROPIC_API_KEY: sk-ant-ci-dummy-not-a-real-key
   RESEND_API_KEY: re_ci_dummy_not_a_real_key

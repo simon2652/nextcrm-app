@@ -1,8 +1,8 @@
 import { inngest } from "@/inngest/client";
 import { prismadb } from "@/lib/prisma";
 import { isFieldEmpty } from "@/lib/enrichment/utils/field-utils";
-import { getApiKey } from "@/lib/api-keys";
-import { getAgentScript } from "@/lib/enrichment/e2b/agent-script";
+import { hasAnyLlmKey } from "@/lib/llm/ai-router";
+import { runResearchAgent, sandboxRunner } from "@/lib/enrichment/e2b/research-agent";
 import { resolveCompanyDomain, filterByConfidence, buildContactUpsertKey, type AgentOutput } from "@/lib/enrichment/e2b/apply-result";
 import { Sandbox } from "e2b";
 import type { EnrichmentField } from "@/lib/enrichment/types";
@@ -53,14 +53,15 @@ export const enrichTarget = inngest.createFunction(
       return row.id;
     });
 
-    const anthropicKey = await step.run("resolve-api-key", () =>
-      getApiKey("ANTHROPIC", triggeredBy)
-    );
+    const hasLlmKey = await step.run("resolve-llm-provider", () => hasAnyLlmKey(triggeredBy));
 
-    if (!anthropicKey) {
+    if (!hasLlmKey) {
       await prismadb.crm_Target_Enrichment.update({
         where: { id: enrichmentId },
-        data: { status: "FAILED", error: "NO_API_KEY: configure ANTHROPIC key in admin or profile settings" },
+        data: {
+          status: "FAILED",
+          error: "NO_API_KEY: configure an LLM key (OpenAI, Gemini, OpenRouter or Anthropic) in admin or profile settings",
+        },
       });
       return;
     }
@@ -103,15 +104,14 @@ export const enrichTarget = inngest.createFunction(
       data: { status: "RUNNING" },
     });
 
-    const agentOutput = await step.run("run-e2b-agent", async (): Promise<AgentOutput> => {
+    const agentOutput = await step.run("run-research-agent", async (): Promise<AgentOutput> => {
       const knownDomain = resolveCompanyDomain({
         companyWebsite: target.company_website ?? null,
         email: target.email ?? null,
         companyName: target.company ?? "",
       });
 
-      const script = getAgentScript();
-
+      // The sandbox is only the browser; the LLM loop runs here through the AI router.
       const sandbox = await Sandbox.create(
         process.env.E2B_ENRICHMENT_TEMPLATE ?? "nextcrm-enrichment",
         {
@@ -121,30 +121,17 @@ export const enrichTarget = inngest.createFunction(
       );
 
       try {
-        await sandbox.files.write("/home/user/agent.mjs", script);
-        let result: { exitCode: number; stdout: string; stderr: string };
-        try {
-          result = await sandbox.commands.run("node /home/user/agent.mjs", {
-            timeoutMs: 0, // no per-request timeout; sandbox-level timeout handles the limit
-            envs: {
-              ANTHROPIC_API_KEY: anthropicKey,
-              COMPANY_NAME: target.company ?? "",
-              COMPANY_WEBSITE: target.company_website ?? "",
-              TARGET_EMAIL: target.email ?? "",
-              TARGET_NAME: [target.first_name, target.last_name].filter(Boolean).join(" "),
-              KNOWN_DOMAIN: knownDomain ?? "",
-            },
-          });
-        } catch (cmdErr: unknown) {
-          const e = cmdErr as Record<string, unknown>;
-          throw new Error(`Agent failed: ${e["stderr"] ?? e["stdout"] ?? String(cmdErr)}`);
-        }
-
-        if (result.exitCode !== 0) {
-          throw new Error(`Agent exited ${result.exitCode}: ${result.stderr || result.stdout}`);
-        }
-
-        return JSON.parse(result.stdout) as AgentOutput;
+        return await runResearchAgent({
+          input: {
+            companyName: target.company ?? "",
+            companyWebsite: target.company_website ?? "",
+            email: target.email ?? "",
+            targetName: [target.first_name, target.last_name].filter(Boolean).join(" "),
+            knownDomain: knownDomain ?? "",
+          },
+          run: sandboxRunner(sandbox),
+          context: { userId: triggeredBy, procedure: "enrichment.target", correlationId: enrichmentId },
+        });
       } finally {
         await sandbox.kill().catch(() => {});
       }

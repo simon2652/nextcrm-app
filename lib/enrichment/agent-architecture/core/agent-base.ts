@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import OpenAI from 'openai';
+import type OpenAI from 'openai';
+import { aiRouter, type AIGenerationContext } from '@/lib/llm/ai-router';
 
 export interface AgentContext<T = unknown> {
   input: T;
@@ -20,17 +21,13 @@ export interface HandoffConfig<T = unknown> {
 }
 
 export abstract class BaseAgent<TInput = unknown, TOutput = unknown> {
-  protected openai: OpenAI;
-  
   constructor(
     public name: string,
     public description: string,
-    protected apiKey: string,
+    protected aiContext: AIGenerationContext,
     public inputSchema?: z.ZodSchema<TInput>,
     public outputSchema?: z.ZodSchema<TOutput>
-  ) {
-    this.openai = new OpenAI({ apiKey });
-  }
+  ) {}
   
   abstract instructions(context: AgentContext<TInput>): string;
   
@@ -77,12 +74,12 @@ export abstract class BaseAgent<TInput = unknown, TOutput = unknown> {
     
     const allTools = [...tools, ...handoffTools];
     
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-5',
+    const { completion: response } = await aiRouter.chat({
+      tier: 'thinking',
       messages,
       tools: allTools.length > 0 ? allTools : undefined,
       response_format: this.outputSchema ? { type: 'json_object' } : undefined,
-    });
+    }, this.aiContext);
     
     const message = response.choices[0].message;
     

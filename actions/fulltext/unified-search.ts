@@ -62,7 +62,7 @@ export async function unifiedSearch(
   // Generate embedding — fall back to keyword-only on failure (silent)
   let queryVec: string | null = null;
   try {
-    const embedding = await generateEmbedding(query.trim());
+    const embedding = await generateEmbedding(query.trim(), "RETRIEVAL_QUERY");
     queryVec = toVectorLiteral(embedding);
   } catch (e) {
     console.warn("[UNIFIED_SEARCH] embedding failed, falling back to keyword-only", e);

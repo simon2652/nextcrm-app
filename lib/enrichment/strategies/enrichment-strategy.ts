@@ -24,7 +24,7 @@ export class EnrichmentStrategy {
 
   constructor(options: EnrichmentStrategyOptions) {
     this.firecrawl = new FirecrawlService(options.firecrawlApiKey);
-    this.openai = new OpenAIService(options.openaiApiKey);
+    this.openai = new OpenAIService({ procedure: 'enrichment.legacyStrategy' });
   }
 
   async enrichRow(

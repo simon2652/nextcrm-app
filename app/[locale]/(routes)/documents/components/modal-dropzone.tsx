@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import UploadFileModal from "@/components/modals/upload-file-modal";
 import { Button } from "@/components/ui/button";
-import { FileUploaderDropzone } from "@/components/ui/file-uploader-dropzone";
+import { FileUploaderDropzone, type UploadedFileInfo } from "@/components/ui/file-uploader-dropzone";
 import { createDocument } from "@/actions/documents/create-document";
 import { toast } from "sonner";
 
@@ -17,26 +17,18 @@ type Props = {
     | "profilePhotoUploader";
 };
 
-const MIME_MAP: Record<string, string> = {
-  pdfUploader: "application/pdf",
-  imageUploader: "image/*",
-  docUploader: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  profilePhotoUploader: "image/*",
-};
-
 const ModalDropzone = ({ buttonLabel, fileType }: Props) => {
   const [open, setOpen] = useState(false);
   const router = useRouter();
 
-  const handleUploadSuccess = async (url: string, key: string) => {
+  const handleUploadSuccess = async (url: string, key: string, file: UploadedFileInfo) => {
     try {
-      const filename = url.split("/").pop() ?? "document";
       await createDocument({
-        name: filename,
+        name: file.name,
         url,
-        key, // use key directly instead of reconstructing from URL
-        size: 0, // size not available from presigned URL flow
-        mimeType: MIME_MAP[fileType] ?? "application/octet-stream",
+        key,
+        size: file.size,
+        mimeType: file.mimeType || "application/octet-stream",
       });
       toast.success("Document uploaded successfully");
       setOpen(false);

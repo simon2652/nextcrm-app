@@ -19,6 +19,8 @@ type Props = {
   mode?: Mode;
   replyTo?: Mail;
   trigger?: React.ReactNode;
+  /** Prefilled recipient(s) for a new message, comma-separated. */
+  defaultTo?: string;
 };
 
 export function ComposeModal({
@@ -26,6 +28,7 @@ export function ComposeModal({
   mode = "new",
   replyTo,
   trigger,
+  defaultTo: initialTo = "",
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -33,7 +36,7 @@ export function ComposeModal({
   const [error, setError] = useState<string | null>(null);
 
   const defaultTo =
-    mode === "reply" ? replyTo?.fromEmail ?? "" : "";
+    mode === "reply" ? replyTo?.fromEmail ?? "" : initialTo;
   const defaultSubject =
     mode === "reply"
       ? `Re: ${replyTo?.subject ?? ""}`

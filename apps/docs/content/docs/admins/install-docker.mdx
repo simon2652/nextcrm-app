@@ -1,6 +1,6 @@
 ---
 title: Install with Docker Compose
-description: Run NextCRM with the bundled Postgres, MinIO and Inngest, then sign in as the first admin.
+description: Run NextCRM with the bundled Postgres and Inngest, then sign in as the first admin.
 ---
 
 The repository ships a `docker-compose.yml` that runs the whole stack. On first start the container applies database migrations, creates the storage bucket and seeds the first admin account.
@@ -29,10 +29,11 @@ cp .env.docker .env
 Edit `.env` and set at least:
 
 - `ADMIN_EMAIL`: an address you can read. It becomes the first admin account.
-- `POSTGRES_PASSWORD` and `MINIO_ROOT_PASSWORD`: strong values for anything beyond a laptop. Both default to `changeme`.
+- `POSTGRES_PASSWORD`: a strong value for anything beyond a laptop. Defaults to `changeme`.
+- `UPLOADTHING_TOKEN`: required for uploads (uploadthing.com/dashboard, API Keys).
 - `RESEND_API_KEY` and `EMAIL_FROM`, so login codes can be emailed. For a quick local test you can skip them and read the code from the database (see [First login](#first-login)).
 
-On a server, also set `APP_URL` and `MINIO_PUBLIC_URL` (see [Public URLs](#public-urls)).
+On a server, also set `APP_URL` (see [Public URLs](#public-urls)).
 
 </Step>
 <Step>
@@ -50,7 +51,7 @@ Watch the startup with `docker compose logs -f app`. Open `http://localhost:3000
 
 ## Which variables reach the app
 
-Docker Compose uses `.env` to fill in the `${...}` placeholders in `docker-compose.yml`, and the app container receives the variables listed under `services.app.environment`. That list covers every variable in `.env.docker`: database, MinIO, Inngest, auth secrets, email (Resend and SMTP), AI keys, Google login and calendar, Firecrawl, E2B, `NEXTCRM_TOKEN` and the advanced switches. See the [configuration reference](/docs/admins/configuration) for what each one does.
+Docker Compose uses `.env` to fill in the `${...}` placeholders in `docker-compose.yml`, and the app container receives the variables listed under `services.app.environment`. That list covers every variable in `.env.docker`: database, UploadThing, Inngest, auth secrets, email (Resend and SMTP), AI keys, Google login and calendar, Firecrawl, E2B, `NEXTCRM_TOKEN` and the advanced switches. See the [configuration reference](/docs/admins/configuration) for what each one does.
 
 Optional API keys left empty stay empty, so keys you save in the admin panel are used. A value set in `.env` always wins over the admin panel.
 
@@ -75,10 +76,9 @@ If the entrypoint cannot write to `/app/data` and a secret is missing, the conta
 
 ### Public URLs
 
-Two URLs must be reachable from your users' browsers:
+One URL must be reachable from your users' browsers:
 
 - `APP_URL`: the address people open, for example `https://crm.example.com`. It sets `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL`, which auth and the links in emails use. Default `http://localhost:3000`.
-- `MINIO_PUBLIC_URL`: the address browsers use to reach MinIO, for example `https://files.example.com`. Uploads go straight from the browser to MinIO with a presigned URL signed for this address, and file links point here. Default `http://localhost:9000`.
 
 ## What runs
 
@@ -86,10 +86,9 @@ Two URLs must be reachable from your users' browsers:
 |---|---|---|
 | `app` | built from `Dockerfile` | port 3000 |
 | `postgres` | `pgvector/pgvector:pg17` | no |
-| `minio` | `pgsty/minio` | `127.0.0.1:9000` |
 | `inngest` | `inngest/inngest:latest`, `inngest start` | no |
 
-MinIO's S3 port is published on `127.0.0.1` only, which is enough for a browser on the same machine. On a server, route a domain to it through a reverse proxy and set `MINIO_PUBLIC_URL`. Each internal service has a commented-out `ports:` entry in `docker-compose.yml` if you need direct access (5432 for Postgres, 9001 for the MinIO console, 8288 for the Inngest dashboard).
+Each internal service has a commented-out `ports:` entry in `docker-compose.yml` if you need direct access (5432 for Postgres, 8288 for the Inngest dashboard).
 
 Inngest runs as a self-hosted server in production mode: every request between it and `/api/inngest` is signed with `INNGEST_SIGNING_KEY`, so nobody can trigger jobs through the public endpoint. See [Background jobs](/docs/admins/background-jobs).
 
@@ -100,9 +99,8 @@ Inngest runs as a self-hosted server in production mode: every request between i
 1. Waits up to 30 seconds for Postgres.
 2. Loads `BETTER_AUTH_SECRET`, `EMAIL_ENCRYPTION_KEY`, `INNGEST_SIGNING_KEY` and `INNGEST_EVENT_KEY` from the environment, or from `/app/data/secrets`, generating and saving any that are missing (see [Secrets](#secrets)).
 3. Runs `prisma migrate deploy`.
-4. Creates the MinIO bucket if it does not exist. If the bucket has no policy yet, it allows anonymous reads of the upload folders (`avatars/`, `images/`, `documents/`, `uploads/`, `thumbnails/`), because file links in the app are plain URLs. Invoices stay private and are served through short-lived presigned links. A policy you set yourself is left alone.
-5. Counts rows in the `Users` table. If there are none, runs `prisma db seed`.
-6. Starts the server with `node server.js`.
+4. Counts rows$1
+5. Starts the server with `node server.js`.
 
 The seed fills default CRM values (industries, lead sources, sales stages and similar) and creates the admin user.
 
@@ -141,4 +139,4 @@ docker compose down      # stops containers, keeps data
 docker compose down -v   # stops containers and deletes all data volumes
 ```
 
-Data lives in four named volumes: `postgres_data` (database), `minio_data` (uploaded files), `app_data` (generated secrets) and `inngest_data` (queued and scheduled jobs). See [Backups](/docs/admins/backups).
+Data lives in three named volumes: `postgres_data` (database), `app_data` (generated secrets) and `inngest_data` (queued and scheduled jobs). See [Backups](/docs/admins/backups).

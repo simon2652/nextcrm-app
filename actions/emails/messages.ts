@@ -201,7 +201,7 @@ export async function sendEmail(input: SendInput) {
   });
 
   // Write sent message to DB immediately so it appears in Sent view
-  await prismadb.email.create({
+  const sent = await prismadb.email.create({
     data: {
       emailAccountId: input.accountId,
       userId,
@@ -216,5 +216,13 @@ export async function sendEmail(input: SendInput) {
       sentAt: new Date(),
       isRead: true,
     },
+    select: { id: true },
   });
+
+  // Later IMAP syncs skip this message (same rfcMessageId), so link it to CRM
+  // contacts/accounts now — that is what puts it on the deal's interaction feed.
+  const { inngest } = await import("@/inngest/client");
+  inngest
+    .send({ name: "email/link-crm", data: { emailId: sent.id } })
+    .catch((e) => console.error("[sendEmail] link-crm dispatch failed", e));
 }

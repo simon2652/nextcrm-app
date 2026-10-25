@@ -120,6 +120,12 @@ export const emailLinkCrm = inngest.createFunction(
           `[link-crm] EmailAccount ${email.emailAccountId} not found for email ${emailId} — skipping body fetch`
         );
       }
+    } else if (linked > 0) {
+      // Sent from the CRM: no IMAP uid, the body is already stored.
+      await step.sendEvent("trigger-embed", {
+        name: "email/embed-email",
+        data: { emailId },
+      });
     }
 
     return { linked };

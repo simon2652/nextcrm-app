@@ -38,6 +38,7 @@ function makeReq(body: unknown) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  (getApiKey as jest.Mock).mockResolvedValue("sk-test");
   process.env.E2B_API_KEY = "e2b_test";
 });
 
@@ -79,19 +80,19 @@ describe("POST /api/crm/targets/enrich-bulk", () => {
     );
   });
 
-  it("checks the keys the queued job uses (Anthropic + E2B), not OpenAI/Firecrawl", async () => {
+  it("checks the keys the queued job uses (any AI-router LLM provider + E2B), not Firecrawl", async () => {
     mockedGetSession.mockResolvedValue({ user: { id: "m" } } as any);
     mockedUser.mockResolvedValue({ id: "m", role: "manager" } as any);
     mockedFindMany.mockResolvedValue([{ id: "a" }] as any);
     await POST(makeReq({ targetIds: ["a"], fields: [{ name: "company_website" }] }));
     const providers = (getApiKey as jest.Mock).mock.calls.map((c) => c[0]);
-    expect(providers).toEqual(["ANTHROPIC"]);
+    expect(providers).toEqual(["OPENAI", "GEMINI", "OPENROUTER", "ANTHROPIC"]);
   });
 
-  it("402 NO_API_KEY when no Anthropic key resolves", async () => {
+  it("402 NO_API_KEY when no LLM provider key resolves", async () => {
     mockedGetSession.mockResolvedValue({ user: { id: "m" } } as any);
     mockedUser.mockResolvedValue({ id: "m", role: "manager" } as any);
-    (getApiKey as jest.Mock).mockResolvedValueOnce(null);
+    (getApiKey as jest.Mock).mockResolvedValue(null);
     const res = await POST(makeReq({ targetIds: ["a"], fields: [{ name: "company_website" }] }));
     expect(res.status).toBe(402);
     expect(await res.json()).toEqual({ error: "NO_API_KEY" });

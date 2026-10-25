@@ -11,8 +11,8 @@ const nextConfig = {
       { protocol: "https", hostname: "localhost" },
       { protocol: "https", hostname: "res.cloudinary.com" },
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
-      { protocol: "https", hostname: "minio-cwg0o4ss0scoccgwso8sk004.coolify.cz" },
-      { protocol: "http", hostname: "minio" },
+      { protocol: "https", hostname: "utfs.io", pathname: "/f/**" },
+      { protocol: "https", hostname: "*.ufs.sh", pathname: "/f/**" },
     ],
   },
   async redirects() {

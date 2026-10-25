@@ -4,26 +4,27 @@ import {
   generateEmbedding,
   toVectorLiteral,
   computeContentHash,
+  isEmbeddingConfigured,
+  MAX_EMBEDDING_CHARS,
 } from "@/inngest/lib/embedding-utils";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { minioClient, MINIO_BUCKET } from "@/lib/minio";
-import OpenAI from "openai";
+import { aiRouter, AIRouterError } from "@/lib/llm/ai-router";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+/** Without any LLM key the document still becomes READY; real provider failures throw (Inngest retries). */
+const noProviderAs =
+  <T>(fallback: T) =>
+  (error: unknown): T => {
+    if (error instanceof AIRouterError && error.code === "NO_PROVIDER") return fallback;
+    throw error;
+  };
 
 const CHUNK_SIZE = 512; // tokens (approx 4 chars per token)
 const CHUNK_OVERLAP = 50;
-const MAX_SINGLE_EMBED_CHARS = 8000 * 4; // ~8000 tokens
+const MAX_SINGLE_EMBED_CHARS = MAX_EMBEDDING_CHARS; // longer text is chunked
 
-async function fetchFileBuffer(key: string): Promise<Buffer> {
-  const response = await minioClient.send(
-    new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: key })
-  );
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
+async function fetchFileBuffer(url: string): Promise<Buffer> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch file: ${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
 }
 
 async function extractText(buffer: Buffer, mimeType: string): Promise<string | null> {
@@ -89,6 +90,7 @@ export const enrichDocument = inngest.createFunction(
         select: {
           id: true,
           key: true,
+          document_file_url: true,
           document_name: true,
           document_file_mimeType: true,
           document_system_type: true,
@@ -102,7 +104,7 @@ export const enrichDocument = inngest.createFunction(
     const contentText = await step.run("extract-text", async () => {
       if (!document.key) return null;
 
-      const buffer = await fetchFileBuffer(document.key);
+      const buffer = await fetchFileBuffer(document.document_file_url);
       const text = await extractText(buffer, document.document_file_mimeType);
 
       await prismadb.documents.update({
@@ -133,6 +135,7 @@ export const enrichDocument = inngest.createFunction(
 
     // Step 2: Generate embeddings
     await step.run("generate-embedding", async () => {
+      if (!(await isEmbeddingConfigured())) return;
       if (contentText.length <= MAX_SINGLE_EMBED_CHARS) {
         // Single embedding on the document
         const embedding = await generateEmbedding(contentText);
@@ -171,19 +174,15 @@ export const enrichDocument = inngest.createFunction(
     // Step 3: Generate summary
     const summary = await step.run("generate-summary", async () => {
       const truncated = contentText.slice(0, 12000); // ~3000 tokens for summary input
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "Summarize the following document in 2-3 concise sentences. Focus on the key purpose and contents.",
-          },
-          { role: "user", content: truncated },
-        ],
-        max_tokens: 200,
-      });
-
-      const summaryText = response.choices[0]?.message?.content ?? null;
+      const summaryText = await aiRouter
+        .generateContent(
+          "Summarize the following document in 2-3 concise sentences. Focus on the key purpose and contents.",
+          truncated,
+          { tier: "light", maxTokens: 200 },
+          { procedure: "documents.enrich.summary", correlationId: documentId }
+        )
+        .then((r) => r.text)
+        .catch(noProviderAs(null));
       await prismadb.documents.update({
         where: { id: documentId },
         data: { summary: summaryText },
@@ -194,23 +193,17 @@ export const enrichDocument = inngest.createFunction(
     // Step 4: AI classification
     await step.run("ai-classify", async () => {
       const truncated = contentText.slice(0, 4000);
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "Classify this document into exactly one of these categories: RECEIPT, CONTRACT, OFFER, OTHER. Respond with only the category name, nothing else.",
-          },
-          {
-            role: "user",
-            content: `Document name: ${document.document_name}\n\nSummary: ${summary}\n\nContent excerpt:\n${truncated}`,
-          },
-        ],
-        max_tokens: 10,
-      });
+      const answer = await aiRouter
+        .generateContent(
+          "Classify this document into exactly one of these categories: RECEIPT, CONTRACT, OFFER, OTHER. Respond with only the category name, nothing else.",
+          `Document name: ${document.document_name}\n\nSummary: ${summary}\n\nContent excerpt:\n${truncated}`,
+          { tier: "light", maxTokens: 20 },
+          { procedure: "documents.enrich.classify", correlationId: documentId }
+        )
+        .then((r) => r.text)
+        .catch(noProviderAs("OTHER"));
 
-      const raw = response.choices[0]?.message?.content?.trim().toUpperCase() ?? "OTHER";
+      const raw = answer.trim().toUpperCase().replace(/[^A-Z]/g, "");
       const systemType = ["RECEIPT", "CONTRACT", "OFFER", "OTHER"].includes(raw)
         ? (raw as "RECEIPT" | "CONTRACT" | "OFFER" | "OTHER")
         : "OTHER";

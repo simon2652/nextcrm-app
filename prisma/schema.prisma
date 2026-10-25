@@ -667,6 +667,7 @@ enum crm_Activity_Type {
   note
   email
   visit
+  linkedin
 }
 
 enum crm_Activity_Status {
@@ -1133,6 +1134,8 @@ enum ApiKeyProvider {
   FIRECRAWL
   ANTHROPIC
   GROQ
+  GEMINI
+  OPENROUTER
 }
 
 model ApiKeys {
@@ -1320,6 +1323,10 @@ model crm_Targets {
   converted_account_id String?   @db.Uuid
   converted_contact_id String?   @db.Uuid
 
+  // AI outreach: researched professional profile + persona, reused by every message
+  outreach_profile    Json?
+  outreach_profile_at DateTime?
+
   deletedAt        DateTime?
   deletedBy        String?   @db.Uuid
 
@@ -1328,6 +1335,7 @@ model crm_Targets {
   enrichments       crm_Target_Enrichment[]
   target_contacts   crm_Target_Contact[]
   campaign_sends    crm_campaign_sends[]
+  outreach_messages crm_Target_Outreach[]
   converted_account crm_Accounts?          @relation("target_converted_account", fields: [converted_account_id], references: [id], onDelete: SetNull)
   converted_contact crm_Contacts?          @relation("target_converted_contact", fields: [converted_contact_id], references: [id], onDelete: SetNull)
 
@@ -1358,6 +1366,91 @@ model crm_TargetLists {
   @@index([created_by])
   @@index([status])
   @@index([deletedAt])
+}
+
+enum crm_Outreach_Channel {
+  EMAIL
+  LINKEDIN
+  WHATSAPP
+}
+
+enum crm_Outreach_Status {
+  PENDING
+  RESEARCHING
+  WRITING
+  READY
+  SENT
+  FAILED
+}
+
+/// One AI-personalised outreach message for a target (email, LinkedIn or WhatsApp).
+model crm_Target_Outreach {
+  id                String               @id @default(uuid()) @db.Uuid
+  target_id         String               @db.Uuid
+  channel           crm_Outreach_Channel
+  language          String               @default("fr")
+  instructions      String?
+  status            crm_Outreach_Status  @default(PENDING)
+  subject           String?
+  body              String?
+  /// Knowledge chunks used for the draft: [{ document, heading }]
+  knowledge_sources Json?
+  /// Confidentiality warnings left after the rewrite pass
+  warnings          String[]
+  model_used        String?
+  error             String?
+  sent_at           DateTime?
+  created_by        String?              @db.Uuid
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  target crm_Targets @relation(fields: [target_id], references: [id], onDelete: Cascade)
+
+  @@index([target_id, createdAt])
+  @@index([status])
+  @@index([created_by])
+}
+
+enum crm_Knowledge_Status {
+  PENDING
+  READY
+  FAILED
+}
+
+/// Product knowledge (Markdown) used to personalise AI messages. Stored in the
+/// database so it is available wherever the app runs (Vercel included).
+model crm_Knowledge_Documents {
+  id              String               @id @default(uuid()) @db.Uuid
+  /// Stable source key (relative path of the imported file); re-imports update in place
+  source          String               @unique
+  title           String
+  content         String
+  content_hash    String
+  /// Retrieval boost: prioritised documents win ties against the others
+  pinned          Boolean              @default(false)
+  /// Names that must never appear in a generated message (confidentiality list)
+  forbidden_terms String[]
+  status          crm_Knowledge_Status @default(PENDING)
+  error           String?
+  chunk_count     Int                  @default(0)
+  created_by      String?              @db.Uuid
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  chunks crm_Knowledge_Chunks[]
+}
+
+model crm_Knowledge_Chunks {
+  id          String                       @id @default(uuid()) @db.Uuid
+  document_id String                       @db.Uuid
+  chunk_index Int
+  heading     String?
+  content     String
+  embedding   Unsupported("vector(1536)")?
+
+  document crm_Knowledge_Documents @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@index([document_id])
 }
 
 model TargetsToTargetLists {

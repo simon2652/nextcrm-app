@@ -3,6 +3,7 @@ import { EnrichmentResult, SearchResult, EnrichmentField } from '../types';
 import { parseEmail } from '../strategies/email-parser';
 import { FirecrawlService } from '../services/firecrawl';
 import { OpenAIService } from '../services/openai';
+import type { AIGenerationContext } from '@/lib/llm/ai-router';
 
 export class AgentOrchestrator {
   private firecrawl: FirecrawlService;
@@ -10,10 +11,10 @@ export class AgentOrchestrator {
   
   constructor(
     private firecrawlApiKey: string,
-    private openaiApiKey: string
+    aiContext: AIGenerationContext
   ) {
     this.firecrawl = new FirecrawlService(firecrawlApiKey);
-    this.openai = new OpenAIService(openaiApiKey);
+    this.openai = new OpenAIService(aiContext);
   }
   
   async enrichRow(

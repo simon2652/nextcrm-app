@@ -31,6 +31,8 @@ import { calendarOutboundSync } from "@/inngest/functions/calendar/outbound-sync
 import { enrichDocument } from "@/inngest/functions/documents/enrich-document";
 import { generateDocumentThumbnail } from "@/inngest/functions/documents/generate-thumbnail";
 import { syncExchangeRates } from "@/inngest/functions/ecb/sync-exchange-rates";
+import { indexKnowledge } from "@/inngest/functions/knowledge/index-document";
+import { generateOutreach } from "@/inngest/functions/outreach/generate-outreach";
 import { getPluginFunctions } from "@/lib/plugins/inngest";
 
 export const { GET, POST, PUT } = serve({
@@ -67,6 +69,8 @@ export const { GET, POST, PUT } = serve({
     enrichDocument,
     generateDocumentThumbnail,
     syncExchangeRates,
+    indexKnowledge,
+    generateOutreach,
     ...getPluginFunctions(),
   ],
 });

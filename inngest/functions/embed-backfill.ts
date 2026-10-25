@@ -6,11 +6,16 @@ const BATCH_SIZE = 512;
 export const embedBackfill = inngest.createFunction(
   { id: "embed-backfill", name: "Embed Backfill All CRM Records", triggers: [{ event: "crm/backfill.requested" }] },
   async () => {
-    const [accounts, contacts, leads, opportunities] = await Promise.all([
+    const [accounts, contacts, leads, opportunities, emails] = await Promise.all([
       prismadb.crm_Accounts.findMany({ select: { id: true } }),
       prismadb.crm_Contacts.findMany({ select: { id: true } }),
       prismadb.crm_Leads.findMany({ select: { id: true } }),
       prismadb.crm_Opportunities.findMany({ select: { id: true } }),
+      // Only CRM-linked emails are embedded (see link-crm).
+      prismadb.email.findMany({
+        where: { OR: [{ contacts: { some: {} } }, { accounts: { some: {} } }] },
+        select: { id: true },
+      }),
     ]);
 
     const events = [
@@ -18,6 +23,7 @@ export const embedBackfill = inngest.createFunction(
       ...contacts.map((r) => ({ name: "crm/contact.saved" as const, data: { record_id: r.id } })),
       ...leads.map((r) => ({ name: "crm/lead.saved" as const, data: { record_id: r.id } })),
       ...opportunities.map((r) => ({ name: "crm/opportunity.saved" as const, data: { record_id: r.id } })),
+      ...emails.map((r) => ({ name: "email/embed-email" as const, data: { emailId: r.id } })),
     ];
 
     // Chunk into batches of 512 (Inngest's per-send limit)
@@ -31,6 +37,7 @@ export const embedBackfill = inngest.createFunction(
       contacts: contacts.length,
       leads: leads.length,
       opportunities: opportunities.length,
+      emails: emails.length,
     };
   }
 );

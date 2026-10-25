@@ -7,23 +7,53 @@ AI work in NextCRM runs in Inngest functions, not in the request. A server actio
 
 ## API key resolution
 
-Enrichment code gets provider keys from `getApiKey(provider, userId?)` in `lib/api-keys.ts`. It checks three places in order:
+All AI code gets provider keys from `getApiKey(provider, userId?)` in `lib/api-keys.ts`. It checks three places in order:
 
-1. The environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `FIRECRAWL_API_KEY`, `GROQ_API_KEY`).
+1. The environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `FIRECRAWL_API_KEY`, `GROQ_API_KEY`).
 2. A system-wide key set by an admin in `/admin/llm-keys` (`ApiKeys` row with scope `SYSTEM`).
 3. The triggering user's own key from **Profile → LLMs** (scope `USER`), if a user id is passed.
 
 Stored keys are encrypted with AES-256-GCM using `EMAIL_ENCRYPTION_KEY` (`lib/email-crypto.ts`). If no key is found, `getApiKey` returns `null` and the caller must handle it.
 
-<Callout type="info">
-Embeddings do not use this chain. `inngest/lib/embedding-utils.ts`, document processing and the unified search query embedding create their OpenAI client from `OPENAI_API_KEY` directly. Without that variable, records are not embedded and search falls back to keyword results.
-</Callout>
+## AI router
+
+Every LLM call goes through the AI router in `lib/llm/ai-router.ts` (modelled on the `ai-router.ts` of team_airfp_2). Do not create an `openai` client or call a provider SDK directly. Use one of these:
+
+- `aiRouter.generateContent(systemPrompt, userPrompt, config, context)` for a single prompt. It returns `{ text, provider, modelUsed, requestId, attempts }`.
+- `aiRouter.chat(params, context)` for OpenAI-style requests (message history, tools, `response_format`). Pass `tier` instead of `model`. It returns the `ChatCompletion` and the assistant message.
+
+`context.procedure` names the calling feature (for example `crm.import.suggestMapping`). It keys the logs and the breaker.
+
+**Provider chain.** The router uses providers that have a key (ENV → system → user, see above), in the order `OPENAI, GEMINI, OPENROUTER, ANTHROPIC`. Override the order with `AI_PROVIDER_ORDER`. All four are reached through their OpenAI-compatible `chat.completions` endpoint, so tool calls and message history survive a fallback.
+
+**Models per tier.** Callers ask for a tier (`light`, `normal` or `thinking`). Each provider has an ordered model list per tier, overridable with `<PROVIDER>_MODELS` (normal), `<PROVIDER>_MODELS_LIGHT` or `<PROVIDER>_MODELS_THINKING`, for example `OPENROUTER_MODELS_THINKING=anthropic/claude-sonnet-4.6,openai/gpt-5`.
+
+**Fallback rules.** For each attempt:
+
+| Outcome | Router behaviour |
+| --- | --- |
+| 404, timeout, 5xx, empty reply, truncated or invalid JSON | Try the next model of the same provider |
+| 400 on a JSON request | Retry the same model once, asking for JSON in the prompt instead of `response_format` |
+| 401 / 403 | Skip the rest of this provider |
+| 429 | Skip the provider and put it in cooldown (`Retry-After`, default 60 s); while cooling down it moves to the end of the chain |
+
+JSON replies are extracted (markdown fences, surrounding prose) and returned as clean JSON. Anthropic ignores `response_format`, so JSON is requested in its system prompt (the reply is still validated). For OpenAI reasoning models, `max_tokens` becomes `max_completion_tokens` and `temperature` is dropped. Gemini 2.5 Flash / Flash-Lite run with thinking off (`reasoning_effort: "none"`) on the `light` and `normal` tiers, so thinking does not eat the token budget of short answers.
+
+**Web search.** Pass `webSearch: true` (in `chat` params or the `generateContent` config) to ground the reply on live web results. Only search-capable providers stay in the chain: Gemini (Google Search grounding, through the native `generateContent` API since the OpenAI-compatible endpoint has no search tool) and OpenRouter (`plugins: [{ id: "web" }]`). The pages used come back in `result.sources`. Search cannot be combined with tools; without a Gemini or OpenRouter key the call throws `NO_PROVIDER`.
+
+**Errors.** `AIRouterError.code` is one of:
+
+- `NO_PROVIDER`: no key at all.
+- `ALL_PROVIDERS_FAILED`: every attempt failed. `failures` lists each one.
+- `PROCEDURE_BLOCKED`: after 3 complete failures, the procedure is paused for 10 minutes so a provider outage does not hammer every provider from bulk jobs.
+
+Each call is traced in the console as `[AI-ROUTER] <requestId> ...`, through the steps Request Received, Provider Order, Attempt, Attempt Failed and Complete. Use `hasAnyLlmKey(userId?)` for "missing key" checks.
 
 ## Embeddings and vector search
 
 ### Storage
 
-Embeddings are 1536-dimension vectors from OpenAI `text-embedding-3-small`, stored in pgvector columns:
+Embeddings are 1536-dimension vectors from Google `gemini-embedding-001` (requested with `outputDimensionality: 1536` and L2-normalised), stored in pgvector columns. They need a Gemini key from the environment or the admin panel; without one, embed jobs skip and search falls back to keyword results. Records are embedded with task type `RETRIEVAL_DOCUMENT`, search queries with `RETRIEVAL_QUERY`. Input is truncated to about 2,000 tokens, and documents longer than that are chunked.
 
 | Table | Source |
 | --- | --- |
@@ -39,9 +69,9 @@ The columns are `Unsupported("vector(1536)")` in Prisma, so all reads and writes
 2. The matching function (`embed-account` and so on) loads the record, builds text from a few fields with `buildEmbeddingText()`, and hashes it with `computeContentHash()`.
 3. If the hash matches the stored `content_hash`, the function stops. Otherwise it calls `generateEmbedding()` and upserts the vector.
 
-To embed records that existed before embeddings were enabled, send the event `crm/backfill.requested` (for example from the Inngest dashboard). `embed-backfill` sends a `crm/<entity>.saved` event for every account, contact, lead and opportunity.
+The content hash includes the model id, so changing the model invalidates every stored hash. To re-embed existing records, click **Recompute embeddings** in `/admin/llm-keys` or send `crm/backfill.requested` from the Inngest dashboard. `embed-backfill` sends a `crm/<entity>.saved` event for every account, contact, lead and opportunity, and `email/embed-email` for every CRM-linked email. Re-embed documents with the document's retry-enrichment action.
 
-Uploaded documents follow a similar path: `document/uploaded` triggers `document-enrich`, which extracts text, embeds the document and its chunks, and writes a summary and classification with `gpt-4o-mini`.
+Uploaded documents follow a similar path: `document/uploaded` triggers `document-enrich`, which extracts text, embeds the document and its chunks, and writes a summary and classification through `aiRouter.generateContent` (tier `light`).
 
 ### Querying
 
@@ -54,19 +84,19 @@ Both apply the caller's permission scope: find similar checks the source record 
 
 Enrichment fills empty fields on contacts and targets from public web data. It runs as Inngest functions triggered from the UI, the `/api/crm/...` enrich routes, or the MCP enrichment tools.
 
-### Targets: agent in an E2B sandbox
+### Targets: research agent with an E2B browser
 
 `enrich-target` (event `enrich/target.run`) does this:
 
-1. Resolves an Anthropic key with `getApiKey("ANTHROPIC", triggeredBy)`.
+1. Checks that an LLM provider is configured (`hasAnyLlmKey(triggeredBy)`).
 2. Starts an [E2B](https://e2b.dev/) sandbox from the template in `E2B_ENRICHMENT_TEMPLATE` (default `nextcrm-enrichment`), with a 5-minute timeout.
-3. Runs the agent script from `lib/enrichment/e2b/agent-script.ts` inside the sandbox. It drives a headless Chrome through `agent-browser` and uses Claude (`claude-sonnet-4-6`) with browser and web-search tools.
+3. Runs the research agent from `lib/enrichment/e2b/research-agent.ts`. The tool loop runs in the Inngest function: every turn goes through `aiRouter.chat` (tier `thinking`, with the `browser_*` and `web_search` tools), so provider and model fallback applies. Each tool call becomes one `agent-browser` command run in the sandbox, with arguments shell-quoted. The sandbox is only the browser and holds no LLM key.
 4. Applies the result with `lib/enrichment/e2b/apply-result.ts`. Fields with confidence below 0.6 are dropped, and only empty fields on the target are filled.
 5. Creates `crm_Target_Contact` rows for people it found, then sends one `enrich/target.contact.run` event per contact. `enrich-target-contact` enriches each one in its own sandbox.
 
 `enrich/targets.bulk` fans out to many targets.
 
-The sandbox needs `E2B_API_KEY`. The template is defined in `e2b/template.ts` (Node 20, `agent-browser`, `tsx`, the Anthropic SDK). `e2b/build.ts` builds it under the name `nextcrm-enrichment`:
+The sandbox needs `E2B_API_KEY`. The template is defined in `e2b/template.ts` (Node 20, `agent-browser`, `tsx`; the Anthropic SDK it still installs is no longer used). `e2b/build.ts` builds it under the name `nextcrm-enrichment`:
 
 ```bash
 pnpm exec tsx e2b/build.ts
@@ -74,13 +104,33 @@ pnpm exec tsx e2b/build.ts
 
 There is also an older `e2b.toml` / `e2b.Dockerfile` pair for the E2B CLI. Jest replaces the `e2b` package with `__mocks__/e2b.ts`, so tests never start a sandbox.
 
-### Contacts: Firecrawl and OpenAI
+### Contacts: Firecrawl and an LLM
 
-`enrich-contact` (event `enrich/contact.run`) does not use E2B. It resolves `FIRECRAWL` and `OPENAI` keys through `getApiKey` and runs `AgentEnrichmentStrategy` from `lib/enrichment/strategies/`. If either key is missing, the run is marked as failed with a message.
+`enrich-contact` (event `enrich/contact.run`) does not use E2B. It resolves the `FIRECRAWL` key through `getApiKey` checks an LLM provider with `hasAnyLlmKey`, and runs `AgentEnrichmentStrategy` from `lib/enrichment/strategies/`. If either key is missing, the run is marked as failed with a message.
 
 ### Status
 
 Each run writes a status row (`crm_Contact_Enrichment` or `crm_Target_Enrichment`) so the UI can show progress and errors.
+
+## Product knowledge
+
+Admin → Product Knowledge imports Markdown / text documents (a whole folder can be picked in the browser) into `crm_Knowledge_Documents`. Because the knowledge lives in PostgreSQL, it is available wherever the app runs (Vercel included): nothing is read from the local disk at runtime.
+
+- **Indexing.** Saving a file sends `knowledge/document.saved`. The `knowledge-index-document` function splits it into heading-aware excerpts (`lib/knowledge/chunk.ts`, about 1,800 characters, heading path kept) in `crm_Knowledge_Chunks`, then embeds them with Gemini in batches of 8, one step per batch. A 429 from the free embedding quota only retries its batch. Re-importing an unchanged file does nothing.
+- **Retrieval.** `retrieveKnowledge(query)` (`lib/knowledge/retrieve.ts`) ranks excerpts by cosine similarity (keyword overlap without a Gemini key), boosts documents marked *Priority*, and keeps at most 3 excerpts per document and 14,000 characters in total. This mirrors the priority-and-budget prompt blocks of the AIRFP pipeline, but the selection is made per prospect.
+- **Confidentiality.** A JSON list with `termes_interdits` / `forbidden_terms` (plus optional `noms_autorises`, `descripteurs_generiques`) is stored as a rules document. Its text goes into the writing prompt and its names are checked in every generated message (`findForbiddenTerms`, case- and accent-insensitive). The prospect's own company is always allowed.
+
+## AI outreach
+
+On a target page, and in bulk from the targets table or a target list, `requestOutreach` creates `crm_Target_Outreach` rows and sends `crm/target.outreach.requested`. The `outreach-generate` function then:
+
+1. **Researches the profile** (`lib/outreach/profile.ts`). A web-search call looks for the prospect's LinkedIn profile and professional facts, then a `light` call derives the persona from the job title (role family, seniority, decision role, priorities, likely pains, angle). The result is stored in `crm_Targets.outreach_profile` and reused by later messages unless a refresh is requested. Without a search-capable key, the profile is built from the imported data and a note says so. Empty `position` / `social_linkedin` fields are filled in, never overwritten.
+2. **Retrieves the product knowledge** matching the persona, the industry and the user's instructions.
+3. **Writes the message** (`lib/outreach/write.ts`) for the channel, in the chosen language: email (subject plus 90 to 150 words), LinkedIn (600 characters, 300 for a connection note) or WhatsApp (450 characters). User instructions override the default style but not truthfulness or confidentiality. If a forbidden name or the length limit slips through, the message is rewritten once; anything left is shown as a warning.
+
+Drafts are edited, copied, opened in the channel (mail app, LinkedIn profile, `wa.me` link) and marked as sent, which records `sent_at`. With `?list=<targetListId>`, the target page shows the one-by-one queue (previous, next, next not contacted). Generation is throttled with `OUTREACH_PER_MINUTE` (default 5 messages per minute, about 3 LLM calls each).
+
+Large imports (Apollo and other lead tools) are sent from the browser in batches of 500 mapped rows (`importTargetRows`), optionally into a new target list and skipping emails already in the CRM.
 
 ## Adding an AI feature
 

@@ -21,7 +21,7 @@ const PROVIDER_META: Record<
 > = {
   OPENAI: {
     label: "OpenAI",
-    description: "Used for GPT-4 enrichment and embeddings",
+    description: "GPT models for AI features and enrichment",
   },
   FIRECRAWL: {
     label: "Firecrawl",
@@ -34,6 +34,14 @@ const PROVIDER_META: Record<
   GROQ: {
     label: "Groq",
     description: "Fast inference",
+  },
+  GEMINI: {
+    label: "Google Gemini",
+    description: "Gemini models for AI features; required for embeddings and semantic search",
+  },
+  OPENROUTER: {
+    label: "OpenRouter",
+    description: "Access many models (GPT, Claude, Gemini, Llama…) with one key",
   },
 };
 

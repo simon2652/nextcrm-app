@@ -6,8 +6,7 @@ import {
 } from "@/lib/authz";
 import { prismadb } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { minioClient, MINIO_BUCKET } from "@/lib/minio";
+import { deleteStoredFiles, keyFromUfsUrl } from "@/lib/uploadthing-server";
 
 export async function bulkDeleteDocuments(documentIds: string[]) {
   let user;
@@ -28,16 +27,12 @@ export async function bulkDeleteDocuments(documentIds: string[]) {
 
   const documents = await prismadb.documents.findMany({
     where: { id: { in: documentIds } },
-    select: { id: true, key: true },
+    select: { id: true, key: true, thumbnail_url: true },
   });
 
-  // Delete from MinIO
-  await Promise.allSettled(
-    documents.map((doc) =>
-      doc.key
-        ? minioClient.send(new DeleteObjectCommand({ Bucket: MINIO_BUCKET, Key: doc.key }))
-        : Promise.resolve()
-    )
+  // Delete from UploadThing (originals and thumbnails)
+  await deleteStoredFiles(
+    documents.flatMap((doc) => [doc.key, keyFromUfsUrl(doc.thumbnail_url)])
   );
 
   // Delete from DB (cascade handles chunks, embeddings, junction tables)

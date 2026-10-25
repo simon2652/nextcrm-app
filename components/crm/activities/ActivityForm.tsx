@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -22,8 +23,9 @@ import { createActivity } from "@/actions/crm/activities/create-activity";
 import { updateActivity } from "@/actions/crm/activities/update-activity";
 import type { ActivityWithLinks } from "@/actions/crm/activities/get-activities-by-entity";
 
-type ActivityType = "call" | "meeting" | "note" | "email" | "visit";
+type ActivityType = "call" | "meeting" | "note" | "email" | "visit" | "linkedin";
 type ActivityStatus = "scheduled" | "completed" | "cancelled";
+type Direction = "outbound" | "inbound";
 
 const DEFAULT_STATUS: Record<ActivityType, ActivityStatus> = {
   call: "scheduled",
@@ -31,6 +33,7 @@ const DEFAULT_STATUS: Record<ActivityType, ActivityStatus> = {
   note: "completed",
   email: "completed",
   visit: "scheduled",
+  linkedin: "completed",
 };
 
 interface Props {
@@ -54,9 +57,15 @@ export function ActivityForm({ open, onOpenChange, entityType, entityId, activit
   const [status, setStatus] = useState<ActivityStatus>(activity?.status ?? "scheduled");
   const [duration, setDuration] = useState(activity?.duration?.toString() ?? "");
   const [outcome, setOutcome] = useState(activity?.outcome ?? "");
+  const existingMetadata = (activity?.metadata as Record<string, unknown> | null) ?? {};
   const [emailSubject, setEmailSubject] = useState(
-    (activity?.metadata as Record<string, string> | null)?.subject ?? ""
+    (existingMetadata.subject as string | undefined) ?? ""
   );
+  const [direction, setDirection] = useState<Direction>(
+    (existingMetadata.direction as Direction | undefined) ?? "outbound"
+  );
+  const [recipient, setRecipient] = useState((existingMetadata.to as string | undefined) ?? "");
+  const [isFollowUp, setIsFollowUp] = useState(existingMetadata.isFollowUp === true);
   const [saving, setSaving] = useState(false);
 
   // Auto-set status when type changes (only in create mode)
@@ -70,6 +79,8 @@ export function ActivityForm({ open, onOpenChange, entityType, entityId, activit
   const showDuration = type === "call" || type === "meeting" || type === "visit";
   const showOutcome = type === "call" || type === "meeting" || type === "visit";
   const showEmailSubject = type === "email";
+  const isMessage = type === "email" || type === "linkedin";
+  const showDirection = isMessage || type === "call";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,8 +95,16 @@ export function ActivityForm({ open, onOpenChange, entityType, entityId, activit
 
     setSaving(true);
 
-    const metadata: Record<string, unknown> = {};
+    // Start from stored metadata so keys set elsewhere (e.g. calendar sync) survive edits.
+    const metadata: Record<string, unknown> = { ...existingMetadata };
+    delete metadata.subject;
+    delete metadata.direction;
+    delete metadata.to;
+    delete metadata.isFollowUp;
     if (showEmailSubject && emailSubject) metadata.subject = emailSubject;
+    if (showDirection) metadata.direction = direction;
+    if (isMessage && recipient.trim()) metadata.to = recipient.trim();
+    if (isFollowUp) metadata.isFollowUp = true;
 
     const payload = {
       type,
@@ -96,7 +115,11 @@ export function ActivityForm({ open, onOpenChange, entityType, entityId, activit
       outcome: showOutcome && outcome.trim() ? outcome.trim() : undefined,
       status,
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-      links: [{ entityType, entityId }],
+      // Editing keeps the original links: the interaction feed shows activities
+      // logged on a deal's contacts, which must not be re-linked to the deal.
+      links: isEdit
+        ? activity.links.map(({ entityType, entityId }) => ({ entityType, entityId }))
+        : [{ entityType, entityId }],
     };
 
     let result: { data?: ActivityWithLinks; error?: string };
@@ -137,6 +160,7 @@ export function ActivityForm({ open, onOpenChange, entityType, entityId, activit
                 <SelectItem value="visit">Visit</SelectItem>
                 <SelectItem value="note">Note</SelectItem>
                 <SelectItem value="email">Email</SelectItem>
+                <SelectItem value="linkedin">LinkedIn message</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -177,6 +201,35 @@ export function ActivityForm({ open, onOpenChange, entityType, entityId, activit
             </Select>
           </div>
 
+          {showDirection && (
+            <div className="space-y-1">
+              <Label htmlFor="activity-direction">Direction</Label>
+              <Select value={direction} onValueChange={(v) => setDirection(v as Direction)}>
+                <SelectTrigger id="activity-direction">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="outbound">{type === "call" ? "Outgoing call" : "Sent"}</SelectItem>
+                  <SelectItem value="inbound">{type === "call" ? "Incoming call" : "Received"}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {isMessage && (
+            <div className="space-y-1">
+              <Label htmlFor="activity-recipient">
+                {direction === "outbound" ? "To" : "From"}
+              </Label>
+              <Input
+                id="activity-recipient"
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                placeholder={type === "linkedin" ? "LinkedIn profile or name" : "name@company.com"}
+              />
+            </div>
+          )}
+
           {showDuration && (
             <div className="space-y-1">
               <Label htmlFor="activity-duration">Duration (minutes)</Label>
@@ -216,14 +269,27 @@ export function ActivityForm({ open, onOpenChange, entityType, entityId, activit
           )}
 
           <div className="space-y-1">
-            <Label htmlFor="activity-description">Notes</Label>
+            <Label htmlFor="activity-description">
+              {isMessage ? "Message content" : "Notes"}
+            </Label>
             <Textarea
               id="activity-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Additional notes..."
-              rows={4}
+              placeholder={isMessage ? "Paste the full message..." : "Additional notes..."}
+              rows={isMessage ? 8 : 4}
             />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="activity-follow-up"
+              checked={isFollowUp}
+              onCheckedChange={(checked) => setIsFollowUp(checked === true)}
+            />
+            <Label htmlFor="activity-follow-up" className="font-normal">
+              Follow-up
+            </Label>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

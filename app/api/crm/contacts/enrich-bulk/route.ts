@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { inngest } from "@/inngest/client";
 import { getApiKey } from "@/lib/api-keys";
+import { hasAnyLlmKey } from "@/lib/llm/ai-router";
 import {
   requireAuthenticated,
   filterAuthorizedContactIds,
@@ -31,8 +32,8 @@ export async function POST(request: NextRequest) {
   }
 
   const firecrawlApiKey = await getApiKey("FIRECRAWL", user.id);
-  const openaiApiKey = await getApiKey("OPENAI", user.id);
-  if (!firecrawlApiKey || !openaiApiKey) {
+  const hasLlmKey = await hasAnyLlmKey(user.id);
+  if (!firecrawlApiKey || !hasLlmKey) {
     return NextResponse.json({ error: "NO_API_KEY" }, { status: 402 });
   }
 

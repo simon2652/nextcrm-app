@@ -79,57 +79,7 @@ echo "==> Running database migrations..."
 prisma migrate deploy
 echo "==> Migrations complete."
 
-# --- 4. Create MinIO bucket (idempotent) ---
-if [ -n "$MINIO_ENDPOINT" ] && [ -n "$MINIO_ACCESS_KEY" ] && [ -n "$MINIO_SECRET_KEY" ] && [ -n "$MINIO_BUCKET" ]; then
-  echo "==> Ensuring MinIO bucket '$MINIO_BUCKET' exists..."
-  BUCKET_URL="${MINIO_ENDPOINT%/}/${MINIO_BUCKET}"
-
-  # Create bucket via S3 API (SigV4-signed; MinIO rejects plain basic auth
-  # with 400) — returns 200 if created, 409 if exists (both are fine)
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X PUT "$BUCKET_URL" \
-    --aws-sigv4 "aws:amz:us-east-1:s3" \
-    -u "${MINIO_ACCESS_KEY}:${MINIO_SECRET_KEY}" \
-    2>/dev/null || echo "000")
-
-  if [ "$STATUS" = "200" ]; then
-    echo "==> Bucket '$MINIO_BUCKET' created."
-  elif [ "$STATUS" = "409" ]; then
-    echo "==> Bucket '$MINIO_BUCKET' already exists."
-  else
-    echo "WARN: Could not create MinIO bucket (HTTP $STATUS). File storage may not work until bucket is created manually."
-  fi
-
-  # Uploaded files are linked by plain URL (no signature), so browsers need
-  # anonymous read on the upload folders. Invoices stay private (presigned).
-  # Applied only when the bucket has no policy yet; an existing one is kept.
-  POLICY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    "${BUCKET_URL}?policy=" \
-    --aws-sigv4 "aws:amz:us-east-1:s3" \
-    -u "${MINIO_ACCESS_KEY}:${MINIO_SECRET_KEY}" \
-    2>/dev/null || echo "000")
-  if [ "$POLICY_STATUS" = "404" ]; then
-    RESOURCES=""
-    for prefix in avatars images documents uploads thumbnails; do
-      RESOURCES="${RESOURCES:+$RESOURCES,}\"arn:aws:s3:::${MINIO_BUCKET}/${prefix}/*\""
-    done
-    POLICY="{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[${RESOURCES}]}]}"
-    PUT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-      -X PUT "${BUCKET_URL}?policy=" \
-      -H "Content-Type: application/json" \
-      --data "$POLICY" \
-      --aws-sigv4 "aws:amz:us-east-1:s3" \
-      -u "${MINIO_ACCESS_KEY}:${MINIO_SECRET_KEY}" \
-      2>/dev/null || echo "000")
-    if [ "$PUT_STATUS" = "204" ] || [ "$PUT_STATUS" = "200" ]; then
-      echo "==> Set public-read policy on upload folders of '$MINIO_BUCKET'."
-    else
-      echo "WARN: Could not set bucket policy (HTTP $PUT_STATUS). Uploaded files will not open in the browser until '$MINIO_BUCKET' allows anonymous GetObject on avatars/, images/, documents/, uploads/ and thumbnails/."
-    fi
-  fi
-fi
-
-# --- 5. Conditional database seed ---
+# --- 4. Conditional database seed ---
 # Use psql to count users directly (reliable) rather than prisma db execute
 # (which emits noisy output hard to parse).
 # Migrations have run, so the table exists: a failing query means a wrong
@@ -151,6 +101,6 @@ else
   echo "==> Database already has $USER_COUNT user(s), skipping seed."
 fi
 
-# --- 6. Start the application ---
+# --- 5. Start the application ---
 echo "==> Starting NextCRM..."
 exec node server.js

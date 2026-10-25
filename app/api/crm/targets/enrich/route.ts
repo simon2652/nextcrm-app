@@ -5,6 +5,7 @@ import type { EnrichmentField } from "@/lib/enrichment/types";
 import type { StoredEnrichmentResult } from "@/lib/enrichment/types/stored-result";
 import { validateEnrichRequest } from "./validate";
 import { getApiKey } from "@/lib/api-keys";
+import { hasAnyLlmKey } from "@/lib/llm/ai-router";
 import { FIELD_MAP } from "@/lib/enrichment/presets/target-fields";
 import {
   requireAuthenticated,
@@ -53,8 +54,8 @@ export async function POST(request: NextRequest) {
   }
 
   const firecrawlApiKey = await getApiKey("FIRECRAWL", user.id);
-  const openaiApiKey = await getApiKey("OPENAI", user.id);
-  if (!firecrawlApiKey || !openaiApiKey) {
+  const hasLlmKey = await hasAnyLlmKey(user.id);
+  if (!firecrawlApiKey || !hasLlmKey) {
     return NextResponse.json({ error: "NO_API_KEY" }, { status: 402 });
   }
 
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
   });
 
   const encoder = new TextEncoder();
-  const strategy = new AgentEnrichmentStrategy(openaiApiKey, firecrawlApiKey);
+  const strategy = new AgentEnrichmentStrategy({ userId: user.id, procedure: "enrichment.target.single" }, firecrawlApiKey);
 
   const stream = new ReadableStream({
     async start(controller) {

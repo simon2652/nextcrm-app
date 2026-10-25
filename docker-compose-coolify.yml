@@ -5,11 +5,10 @@
 #
 # Coolify: build pack "Docker Compose", compose location
 # /docker-compose-coolify.yml. Assign your domain to the `app` service
-# (port 3000) and, if browsers should reach uploaded files, a second domain
-# to the `minio` service (port 9000) and set MINIO_PUBLIC_URL to it.
+# (port 3000). File uploads use UploadThing (no storage service to host).
 #
 # Required (deploy fails without them): POSTGRES_PASSWORD,
-# MINIO_ROOT_PASSWORD, BETTER_AUTH_SECRET, EMAIL_ENCRYPTION_KEY.
+# UPLOADTHING_TOKEN, BETTER_AUTH_SECRET, EMAIL_ENCRYPTION_KEY.
 # NEXTCRM_VERSION is optional: the release tag to run (default latest).
 # INNGEST_SIGNING_KEY / INNGEST_EVENT_KEY are optional: when unset, the app
 # generates them on first start and keeps them in the app_data volume.
@@ -37,28 +36,6 @@ services:
       - nextcrm
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextcrm}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # --- MinIO Object Storage ---
-  minio:
-    # MinIO stopped publishing images (minio/minio is gone); pgsty/minio is a
-    # community rebuild with the same entrypoint, command and curl.
-    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    expose:
-      - "9000"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-nextcrm}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-    volumes:
-      - minio_data:/data
-    networks:
-      - nextcrm
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -118,13 +95,8 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
       EMAIL_ENCRYPTION_KEY: ${EMAIL_ENCRYPTION_KEY:?set EMAIL_ENCRYPTION_KEY}
 
-      # MinIO (MINIO_PUBLIC_URL = the URL browsers use to upload and fetch
-      # files; presigned upload URLs are signed for it)
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_URL:-http://localhost:9000}
-      MINIO_BUCKET: ${MINIO_BUCKET:-nextcrm}
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-nextcrm}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      # UploadThing file storage (token from https://uploadthing.com/dashboard)
+      UPLOADTHING_TOKEN: ${UPLOADTHING_TOKEN:?set UPLOADTHING_TOKEN}
 
       # Inngest — production mode against the bundled server. Empty keys are
       # generated on first start and shared with it (see the inngest service).
@@ -156,6 +128,10 @@ services:
       # (an env value always wins over the admin panel).
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AI_PROVIDER_ORDER: ${AI_PROVIDER_ORDER:-}
+      OUTREACH_PER_MINUTE: ${OUTREACH_PER_MINUTE:-}
       GOOGLE_ID: ${GOOGLE_ID:-}
       GOOGLE_SECRET: ${GOOGLE_SECRET:-}
       GOOGLE_CALENDAR_CLIENT_ID: ${GOOGLE_CALENDAR_CLIENT_ID:-}
@@ -172,8 +148,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_healthy
       inngest:
         condition: service_started
     networks:
@@ -187,7 +161,6 @@ services:
 
 volumes:
   postgres_data:
-  minio_data:
   app_data:
   inngest_data:
 

@@ -13,11 +13,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CalendarDays, Trash2, User, Users } from "lucide-react";
+import { CalendarDays, ListChecks, Trash2, User, Users } from "lucide-react";
 import moment from "moment";
 import Link from "next/link";
 import AddTargetToListModal from "@/components/modals/AddTargetToListModal";
 import ExportTargetsButton from "@/components/campaigns/ExportTargetsButton";
+import { ConvertTargetsToDealsButton } from "@/app/[locale]/(routes)/campaigns/targets/components/ConvertTargetsToDealsButton";
+import { BulkOutreachDialog } from "@/app/[locale]/(routes)/campaigns/targets/components/outreach/BulkOutreachDialog";
 
 interface TargetListBasicViewProps {
   data: any;
@@ -31,6 +33,10 @@ export function BasicView({ data }: TargetListBasicViewProps) {
   if (!data) return <div>Target list not found</div>;
 
   const existingTargetIds: string[] = (data.targets ?? []).map((t: any) => t.target_id);
+  // Same order as the one-by-one queue (last name), so "Process one by one" starts at the top.
+  const firstInQueue: string | undefined = [...(data.targets ?? [])]
+    .filter((t: any) => t.target)
+    .sort((a: any, b: any) => (a.target.last_name ?? "").localeCompare(b.target.last_name ?? "") || a.target_id.localeCompare(b.target_id))[0]?.target_id;
 
   const handleRemove = async (targetId: string) => {
     setRemovingId(targetId);
@@ -119,6 +125,18 @@ export function BasicView({ data }: TargetListBasicViewProps) {
                   .toLowerCase()}-targets`}
                 disabled={!data.targets || data.targets.length === 0}
               />
+              {existingTargetIds.length > 0 && (
+                <>
+                  <Button asChild size="sm">
+                    <Link href={`/campaigns/targets/${firstInQueue ?? existingTargetIds[0]}?list=${data.id}`}>
+                      <ListChecks className="h-4 w-4 mr-1" />
+                      Process one by one
+                    </Link>
+                  </Button>
+                  <BulkOutreachDialog targetIds={existingTargetIds} />
+                  <ConvertTargetsToDealsButton targetIds={existingTargetIds} />
+                </>
+              )}
               <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
                 + Add Target
               </Button>
@@ -138,7 +156,7 @@ export function BasicView({ data }: TargetListBasicViewProps) {
                   <User className="h-4 w-4 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <Link
-                      href={`/campaigns/targets/${t.target?.id}`}
+                      href={`/campaigns/targets/${t.target?.id}?list=${data.id}`}
                       className="text-sm font-medium hover:underline"
                     >
                       {t.target?.first_name} {t.target?.last_name}

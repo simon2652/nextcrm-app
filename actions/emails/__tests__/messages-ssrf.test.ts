@@ -5,8 +5,11 @@ jest.mock("@/lib/auth-server", () => ({ getSession: jest.fn() }));
 jest.mock("@/lib/prisma", () => ({
   prismadb: {
     emailAccount: { findFirst: jest.fn() },
-    email: { create: jest.fn().mockResolvedValue({}) },
+    email: { create: jest.fn().mockResolvedValue({ id: "email-1" }) },
   },
+}));
+jest.mock("@/inngest/client", () => ({
+  inngest: { send: jest.fn().mockResolvedValue(undefined) },
 }));
 jest.mock("@/lib/email-crypto", () => ({ decrypt: jest.fn(() => "pw") }));
 jest.mock("@/lib/net/host-guard", () => ({
@@ -18,6 +21,7 @@ import { getSession } from "@/lib/auth-server";
 import { prismadb } from "@/lib/prisma";
 import { assertPublicHost, HostNotAllowedError } from "@/lib/net/host-guard";
 import { sendEmail } from "@/actions/emails/messages";
+import { inngest } from "@/inngest/client";
 
 const getSess = getSession as jest.Mock;
 const guard = assertPublicHost as jest.Mock;
@@ -63,4 +67,14 @@ it("allowSelfSignedTls opts out of cert verification", async () => {
   const cfg = createTransport.mock.calls[0][0];
   expect(cfg.servername).toBe("smtp.example.com");
   expect(cfg.tls.rejectUnauthorized).toBe(false);
+});
+
+it("links a CRM-sent email to contacts (IMAP sync skips it later)", async () => {
+  findAcc.mockResolvedValue({
+    id: "a1", userId: "u1", smtpHost: "smtp.example.com", smtpPort: 465, smtpSsl: true,
+    username: "u", passwordEncrypted: "enc",
+  });
+  guard.mockResolvedValue({ address: "93.184.216.34", hostname: "smtp.example.com" });
+  await sendEmail({ accountId: "a1", to: ["x@y.z"], subject: "s", body: "b" } as any);
+  expect(inngest.send).toHaveBeenCalledWith({ name: "email/link-crm", data: { emailId: "email-1" } });
 });

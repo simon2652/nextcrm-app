@@ -15,10 +15,12 @@ const PROVIDER_META: Record<
   ApiKeyProvider,
   { name: string; subtitle: string; envVar: string }
 > = {
-  OPENAI: { name: "OpenAI", subtitle: "GPT-4 · Embeddings", envVar: "OPENAI_API_KEY" },
+  OPENAI: { name: "OpenAI", subtitle: "GPT models", envVar: "OPENAI_API_KEY" },
   FIRECRAWL: { name: "Firecrawl", subtitle: "Web scraping", envVar: "FIRECRAWL_API_KEY" },
   ANTHROPIC: { name: "Anthropic", subtitle: "Claude models", envVar: "ANTHROPIC_API_KEY" },
   GROQ: { name: "Groq", subtitle: "Fast inference", envVar: "GROQ_API_KEY" },
+  GEMINI: { name: "Google Gemini", subtitle: "Gemini models · Embeddings", envVar: "GEMINI_API_KEY / GOOGLE_API_KEY" },
+  OPENROUTER: { name: "OpenRouter", subtitle: "Any model via one key", envVar: "OPENROUTER_API_KEY" },
 };
 
 interface ProviderKeyCardProps {

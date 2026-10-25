@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prismadb } from "@/lib/prisma";
 import { inngest } from "@/inngest/client";
 import { getApiKey } from "@/lib/api-keys";
+import { hasAnyLlmKey } from "@/lib/llm/ai-router";
 import { missingTargetEnrichmentKey } from "@/lib/enrichment/target-enrichment-keys";
 import { itemResponse, notFound, externalError } from "../helpers";
 
@@ -9,7 +10,7 @@ export const crmEnrichmentTools = [
   {
     name: "crm_enrich_contact",
     description:
-      "Enrich a single contact using Firecrawl + AI. Requires FIRECRAWL and OPENAI API keys configured. Returns enrichment record ID for tracking.",
+      "Enrich a single contact using Firecrawl + AI. Requires a FIRECRAWL key and an LLM key (OpenAI, Gemini, OpenRouter or Anthropic). Returns enrichment record ID for tracking.",
     schema: z.object({
       contactId: z.string().uuid(),
       fields: z
@@ -26,10 +27,10 @@ export const crmEnrichmentTools = [
       userId: string
     ) {
       const firecrawlKey = await getApiKey("FIRECRAWL", userId);
-      const openaiKey = await getApiKey("OPENAI", userId);
-      if (!firecrawlKey || !openaiKey) {
+      const hasLlmKey = await hasAnyLlmKey(userId);
+      if (!firecrawlKey || !hasLlmKey) {
         externalError(
-          "Missing required API keys (FIRECRAWL and/or OPENAI). Configure them in Settings > API Keys."
+          "Missing required API keys (FIRECRAWL and/or an LLM provider). Configure them in Settings > API Keys."
         );
       }
 
@@ -83,9 +84,9 @@ export const crmEnrichmentTools = [
       userId: string
     ) {
       const firecrawlKey = await getApiKey("FIRECRAWL", userId);
-      const openaiKey = await getApiKey("OPENAI", userId);
-      if (!firecrawlKey || !openaiKey) {
-        externalError("Missing required API keys (FIRECRAWL and/or OPENAI).");
+      const hasLlmKey = await hasAnyLlmKey(userId);
+      if (!firecrawlKey || !hasLlmKey) {
+        externalError("Missing required API keys (FIRECRAWL and/or an LLM provider).");
       }
 
       await inngest.send({

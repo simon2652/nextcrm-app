@@ -8,12 +8,9 @@ jest.mock("@/lib/prisma", () => ({
     },
   },
 }));
-jest.mock("@/lib/minio", () => ({
-  minioClient: { send: jest.fn().mockResolvedValue(undefined) },
-  MINIO_BUCKET: "test-bucket",
-}));
-jest.mock("@aws-sdk/client-s3", () => ({
-  DeleteObjectCommand: jest.fn().mockImplementation((args) => args),
+jest.mock("@/lib/uploadthing-server", () => ({
+  deleteStoredFiles: jest.fn().mockResolvedValue(undefined),
+  keyFromUfsUrl: jest.fn().mockReturnValue(null),
 }));
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }));
 

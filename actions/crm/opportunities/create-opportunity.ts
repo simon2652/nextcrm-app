@@ -1,5 +1,6 @@
 "use server";
 import { prismadb } from "@/lib/prisma";
+import { junctionTableHelpers } from "@/lib/junction-helpers";
 import { revalidatePath } from "next/cache";
 import { pluginRuleErrorMessage } from "@/lib/plugins/action-errors";
 import sendEmail from "@/lib/sendmail";
@@ -77,6 +78,9 @@ export const createOpportunity = async (data: {
         close_date,
         delivery_deadline,
         contact: contact || undefined,
+        // Keep the many-to-many in sync: the detail page and the interaction
+        // feed read contacts from ContactsToOpportunities.
+        contacts: junctionTableHelpers.connectContactsToOpportunity(contact ? [contact] : []),
         createdBy: userId,
         last_activity_by: userId,
         updatedBy: userId,

@@ -1,6 +1,6 @@
 "use server";
 import { getSession } from "@/lib/auth-server";
-import { openAiHelper } from "@/lib/openai";
+import { aiRouter } from "@/lib/llm/ai-router";
 
 const TARGET_FIELDS = [
   "last_name",
@@ -93,53 +93,47 @@ function fuzzyMatch(header: string): string | null {
   return aliases[normalized] ?? null;
 }
 
-export const suggestMapping = async (headers: string[]) => {
+/**
+ * Suggest a { csvHeader -> crmField } mapping. `fields` defaults to the target
+ * fields; other importers (e.g. opportunities) pass their own field keys.
+ */
+export const suggestMapping = async (headers: string[], fields?: string[]) => {
   const session = await getSession();
   if (!session) return { error: "Unauthorized" };
 
   if (!Array.isArray(headers)) return { error: "Invalid request" };
+  if (fields !== undefined && (!Array.isArray(fields) || fields.some((k) => typeof k !== "string"))) {
+    return { error: "Invalid request" };
+  }
+  const crmFields = fields ?? TARGET_FIELDS;
 
   const userId = (session.user as any).id;
-  const openai = await openAiHelper(userId);
-
-  if (openai) {
-    try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a data mapping assistant. Given a list of CSV column headers and a list of CRM field names, return a JSON object mapping each CSV header to the best matching CRM field, or null if no match. Only use the provided CRM field names as values. Return only valid JSON, no explanation.",
-          },
-          {
-            role: "user",
-            content: `CSV headers: ${JSON.stringify(headers)}\n\nCRM fields: ${JSON.stringify(TARGET_FIELDS)}\n\nReturn a JSON object like: { "CSV Header": "crm_field" or null }`,
-          },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0,
-      });
-
-      const content = completion.choices[0]?.message?.content;
-      if (content) {
-        const parsed = JSON.parse(content);
-        const mapping: Record<string, string | null> = {};
-        for (const header of headers) {
-          const suggested = parsed[header];
-          mapping[header] = suggested && TARGET_FIELDS.includes(suggested) ? suggested : null;
-        }
-        return { mapping };
-      }
-    } catch (err) {
-      console.error("OpenAI mapping failed, falling back to fuzzy match", err);
+  try {
+    const result = await aiRouter.generateContent(
+      "You are a data mapping assistant. Given a list of CSV column headers and a list of CRM field names, return a JSON object mapping each CSV header to the best matching CRM field, or null if no match. Only use the provided CRM field names as values. Return only valid JSON, no explanation.",
+      `CSV headers: ${JSON.stringify(headers)}\n\nCRM fields: ${JSON.stringify(crmFields)}\n\nReturn a JSON object like: { "CSV Header": "crm_field" or null }`,
+      { tier: "light", responseFormat: "json", temperature: 0 },
+      { userId, procedure: "crm.import.suggestMapping" }
+    );
+    const parsed = JSON.parse(result.text);
+    const mapping: Record<string, string | null> = {};
+    for (const header of headers) {
+      const suggested = parsed[header];
+      mapping[header] = suggested && crmFields.includes(suggested) ? suggested : null;
     }
+    return { mapping };
+  } catch (err) {
+    // No provider configured, or every provider failed: fuzzy matching still works.
+    console.error("LLM mapping failed, falling back to fuzzy match", err);
   }
 
   // Fallback: fuzzy match
   const mapping: Record<string, string | null> = {};
+  const normalize = (s: string) => s.toLowerCase().replace(/[\s_\-]/g, "");
   for (const header of headers) {
-    mapping[header] = fuzzyMatch(header);
+    mapping[header] = fields
+      ? crmFields.find((k) => normalize(k) === normalize(header)) ?? null
+      : fuzzyMatch(header);
   }
   return { mapping };
 };

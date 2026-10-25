@@ -6,6 +6,7 @@ import { getUser } from "@/actions/get-user";
 import { mapLegacyRole } from "@/lib/authz";
 import { canReadInvoice, type InvoiceStatus } from "@/lib/invoices/permissions";
 import { renderInvoicePdf } from "@/lib/invoices/pdf/render";
+import { deleteStoredFiles } from "@/lib/uploadthing-server";
 import { uploadInvoicePdf } from "@/lib/invoices/storage";
 import { buildInvoicePdfData } from "@/lib/invoices/pdf/build-pdf-data";
 
@@ -75,6 +76,10 @@ export async function regenerateInvoicePdf(
       where: { id: invoice.id },
       data: { pdfStorageKey: storageKey, pdfGeneratedAt },
     });
+    // Each upload gets a new key: drop the superseded PDF
+    if (invoice.pdfStorageKey && invoice.pdfStorageKey !== storageKey) {
+      await deleteStoredFiles([invoice.pdfStorageKey]);
+    }
 
     revalidatePath(`/invoices/${invoiceId}`);
     return { ok: true, pdfGeneratedAt: pdfGeneratedAt.toISOString() };

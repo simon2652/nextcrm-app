@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   }
 
   const missingKey = await missingTargetEnrichmentKey(user.id);
-  if (missingKey === "ANTHROPIC") {
+  if (missingKey === "LLM") {
     return NextResponse.json({ error: "NO_API_KEY" }, { status: 402 });
   }
   if (missingKey === "E2B_API_KEY") {

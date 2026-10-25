@@ -50,21 +50,13 @@ Sessions last 7 days and are refreshed every 24 hours. Password login is disable
 
 ## File storage
 
-NextCRM talks to any S3-compatible store through the AWS SDK with path-style URLs.
+Files are stored on [UploadThing](https://uploadthing.com/).
 
 | Variable | Required | What it does |
 |---|---|---|
-| `MINIO_ENDPOINT` | Yes | S3 endpoint URL the server connects to, for example `http://minio:9000` inside Docker. `https://` endpoints work. |
-| `MINIO_PUBLIC_ENDPOINT` | If different | URL browsers use to reach the store. Presigned upload and invoice download URLs are signed for this address, and file links are built as `<MINIO_PUBLIC_ENDPOINT>/<bucket>/<key>`. Read at runtime. Falls back to `NEXT_PUBLIC_MINIO_ENDPOINT`, then `MINIO_ENDPOINT`. |
-| `NEXT_PUBLIC_MINIO_ENDPOINT` | No | Older name for `MINIO_PUBLIC_ENDPOINT`, still honoured. |
-| `MINIO_PUBLIC_URL` | Docker only | Compose variable passed to the app as `MINIO_PUBLIC_ENDPOINT`. Default `http://localhost:9000`. |
-| `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Yes | S3 credentials. |
-| `MINIO_BUCKET` | Yes | Bucket name. The Docker entrypoint creates it if missing. |
-| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | Docker only | Credentials of the bundled `minio` service; the compose files pass them to the app as access and secret key. |
+| `UPLOADTHING_TOKEN` | Yes | App token from the UploadThing dashboard (API Keys, V7). Used for browser uploads and for server-side uploads, deletions and signed URLs. |
 
-The app throws at startup if any of the four required `MINIO_*` values is missing.
-
-File links are plain URLs, so browsers need anonymous read access to the upload folders (`avatars/`, `images/`, `documents/`, `uploads/`, `thumbnails/`). The Docker entrypoint sets that bucket policy when the bucket has none. Invoices (`invoices/`) stay private and are served through presigned links.
+Documents, avatars and thumbnails are stored with public access and linked by their `ufsUrl` (`https://<app-id>.ufs.sh/f/<key>`). Invoice PDFs are uploaded with a private ACL and served through short-lived signed URLs; enable private files for your UploadThing app (dashboard, Settings, Files access).
 
 ## Email
 

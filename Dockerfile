@@ -40,11 +40,7 @@ ENV DATABASE_URL="postgresql://placeholder:[REDACTED]@placeholder:5432/placehold
     INNGEST_SIGNING_KEY="build-placeholder" \
     BETTER_AUTH_SECRET="build-time-placeholder-secret-replace-at-runtime" \
     BETTER_AUTH_URL="http://localhost:3000" \
-    MINIO_ENDPOINT="http://placeholder:9000" \
-    MINIO_BUCKET="placeholder" \
-    MINIO_ACCESS_KEY="placeholder" \
-    MINIO_SECRET_KEY="placeholder" \
-    EMAIL_ENCRYPTION_KEY="0000000000000000000000000000000000000000000000000000000000000000" \
+    UPLOADTHING_TOKEN="placeholder" \n    EMAIL_ENCRYPTION_KEY="0000000000000000000000000000000000000000000000000000000000000000" \
     OPENAI_API_KEY="sk-placeholder-for-build" \
     RESEND_API_KEY="re_placeholder_for_build" \
     SKIP_ENV_VALIDATION=1

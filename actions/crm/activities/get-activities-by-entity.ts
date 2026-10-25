@@ -11,7 +11,7 @@ const PAGE_SIZE = 25;
 
 export type ActivityWithLinks = {
   id: string;
-  type: "call" | "meeting" | "note" | "email" | "visit";
+  type: "call" | "meeting" | "note" | "email" | "visit" | "linkedin";
   title: string;
   description: string | null;
   date: Date;

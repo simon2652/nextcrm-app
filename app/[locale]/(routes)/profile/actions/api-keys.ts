@@ -5,13 +5,7 @@ import { prismadb } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { encrypt, decrypt } from "@/lib/email-crypto";
 import { ApiKeyProvider } from "@prisma/client";
-
-const PROVIDER_ENV_MAP: Record<ApiKeyProvider, string> = {
-  OPENAI: "OPENAI_API_KEY",
-  FIRECRAWL: "FIRECRAWL_API_KEY",
-  ANTHROPIC: "ANTHROPIC_API_KEY",
-  GROQ: "GROQ_API_KEY",
-};
+import { envApiKey } from "@/lib/api-keys";
 
 export type UserProviderStatus = {
   provider: ApiKeyProvider;
@@ -30,7 +24,7 @@ export async function getUserApiKeys(): Promise<UserProviderStatus[]> {
   return Promise.all(
     providers.map(async (provider): Promise<UserProviderStatus> => {
       // 1. Check ENV
-      const envValue = process.env[PROVIDER_ENV_MAP[provider]];
+      const envValue = envApiKey(provider);
       if (envValue) {
         return {
           provider,

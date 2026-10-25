@@ -1,7 +1,7 @@
 import { inngest } from "@/inngest/client";
 import { prismadb } from "@/lib/prisma";
-import { getApiKey } from "@/lib/api-keys";
-import { getAgentScript } from "@/lib/enrichment/e2b/agent-script";
+import { hasAnyLlmKey } from "@/lib/llm/ai-router";
+import { runResearchAgent, sandboxRunner } from "@/lib/enrichment/e2b/research-agent";
 import { resolveCompanyDomain, type AgentOutput } from "@/lib/enrichment/e2b/apply-result";
 import { isFieldEmpty } from "@/lib/enrichment/utils/field-utils";
 import { Sandbox } from "e2b";
@@ -45,11 +45,9 @@ export const enrichTargetContact = inngest.createFunction(
     });
     if (skipReason) return { skipped: skipReason };
 
-    const anthropicKey = await step.run("resolve-api-key", () =>
-      getApiKey("ANTHROPIC", triggeredBy)
-    );
+    const hasLlmKey = await step.run("resolve-llm-provider", () => hasAnyLlmKey(triggeredBy));
 
-    if (!anthropicKey) {
+    if (!hasLlmKey) {
       await prismadb.crm_Target_Contact.update({
         where: { id: contactId },
         data: { enrichStatus: "FAILED" },
@@ -64,14 +62,12 @@ export const enrichTargetContact = inngest.createFunction(
       })
     );
 
-    const agentOutput = await step.run("run-e2b-agent", async (): Promise<AgentOutput> => {
+    const agentOutput = await step.run("run-research-agent", async (): Promise<AgentOutput> => {
       const knownDomain = resolveCompanyDomain({
         companyWebsite: contact.target.company_website ?? null,
         email: contact.email ?? contact.target.email ?? null,
         companyName: contact.target.company ?? "",
       });
-
-      const script = getAgentScript();
 
       const sandbox = await Sandbox.create(
         process.env.E2B_ENRICHMENT_TEMPLATE ?? "nextcrm-enrichment",
@@ -82,23 +78,17 @@ export const enrichTargetContact = inngest.createFunction(
       );
 
       try {
-        await sandbox.files.write("/home/user/agent.mjs", script);
-        const result = await sandbox.commands.run("node /home/user/agent.mjs", {
-          envs: {
-            ANTHROPIC_API_KEY: anthropicKey,
-            COMPANY_NAME: contact.target.company ?? "",
-            COMPANY_WEBSITE: contact.target.company_website ?? "",
-            TARGET_EMAIL: contact.email ?? contact.target.email ?? "",
-            TARGET_NAME: contact.name ?? "",
-            KNOWN_DOMAIN: knownDomain ?? "",
+        return await runResearchAgent({
+          input: {
+            companyName: contact.target.company ?? "",
+            companyWebsite: contact.target.company_website ?? "",
+            email: contact.email ?? contact.target.email ?? "",
+            targetName: contact.name ?? "",
+            knownDomain: knownDomain ?? "",
           },
+          run: sandboxRunner(sandbox),
+          context: { userId: triggeredBy, procedure: "enrichment.targetContact", correlationId: contactId },
         });
-
-        if (result.exitCode !== 0) {
-          throw new Error(`Agent exited ${result.exitCode}: ${result.stderr}`);
-        }
-
-        return JSON.parse(result.stdout) as AgentOutput;
       } finally {
         await sandbox.kill().catch(() => {});
       }

@@ -3,6 +3,7 @@ import { prismadb } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { encrypt, decrypt } from "@/lib/email-crypto";
 import { ApiKeyProvider } from "@prisma/client";
+import { envApiKey } from "@/lib/api-keys";
 import {
   requireRole,
   AuthenticationError,
@@ -19,13 +20,6 @@ async function ensureAdmin(): Promise<void> {
   }
 }
 
-const PROVIDER_ENV_MAP: Record<ApiKeyProvider, string> = {
-  OPENAI: "OPENAI_API_KEY",
-  FIRECRAWL: "FIRECRAWL_API_KEY",
-  ANTHROPIC: "ANTHROPIC_API_KEY",
-  GROQ: "GROQ_API_KEY",
-};
-
 export type ProviderStatus = {
   provider: ApiKeyProvider;
   source: "ENV_ACTIVE" | "SYSTEM_SET" | "NOT_CONFIGURED";
@@ -39,7 +33,7 @@ export async function getSystemApiKeys(): Promise<ProviderStatus[]> {
 
   return Promise.all(
     providers.map(async (provider): Promise<ProviderStatus> => {
-      const envValue = process.env[PROVIDER_ENV_MAP[provider]];
+      const envValue = envApiKey(provider);
       if (envValue) {
         return {
           provider,
