@@ -95,8 +95,8 @@ Details: [Enrichment](/docs/admins/integrations/enrichment).
 
 | Variable | Required | What it does |
 |---|---|---|
-| `INNGEST_ID` | Yes | Inngest app id, for example `nextcrm`. |
-| `INNGEST_APP_NAME` | Yes | Display name of the app in Inngest. |
+| `INNGEST_ID` | No | Inngest app id. Defaults to `nextcrm`. |
+| `INNGEST_APP_NAME` | No | Display name of the app in Inngest. Defaults to `NextCRM`. |
 | `INNGEST_EVENT_KEY` | Yes | Key used to send events. In Docker, if empty, generated on the first start and shared with the bundled Inngest server. |
 | `INNGEST_SIGNING_KEY` | Yes | Signs and verifies requests between Inngest and `/api/inngest`. With the bundled server it must be a hex string; in Docker, if empty, it is generated on the first start and shared with the bundled server. With Inngest Cloud use the key from the Inngest dashboard. |
 | `INNGEST_DEV` | No | `1` makes the SDK talk to an Inngest dev server and skip signature checks. Only for local development; the compose files set `0`. Read by the Inngest SDK. |
